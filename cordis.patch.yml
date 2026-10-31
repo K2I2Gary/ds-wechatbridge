@@ -1,0 +1,4 @@
+# DSH「通到微信」—— 伙伴说的话发到微信，微信里的话转进 DSH。
+- insert:
+    - id: wechat-bridge
+      name: 'dsh-wechat-bridge'

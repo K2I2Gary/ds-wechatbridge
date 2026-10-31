@@ -1,0 +1,9 @@
+node_modules/
+tmp/
+bridge/tmp_*
+bridge/fallback_state.json
+__pycache__/
+*.pyc
+*.log
+dsh-wechat-bridge/
+.DS_Store
