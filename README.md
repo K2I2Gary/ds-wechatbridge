@@ -22,10 +22,10 @@
 ## 装
 
 ```
-dsh plugin --profile desktop add github:Yuuyuko-uu/dsh-wechat-bridge
+dsh plugin --profile desktop add github:thawline/dsh-wechat-bridge
 ```
 
-或 设置 → 插件 → 安装，填 `github:Yuuyuko-uu/dsh-wechat-bridge`。
+或 设置 → 插件 → 安装，填 `github:thawline/dsh-wechat-bridge`。
 
 装完**重启一次 DSH**，打开 **设置 → 通到微信**。
 
@@ -58,7 +58,7 @@ dsh plugin --profile desktop add github:Yuuyuko-uu/dsh-wechat-bridge
 | **群回复间隔秒** | 同一个群，两条回复之间至少隔几秒。默认 30，填 0 = 不限 |
 | **群每小时上限** | 同一个群一小时最多接几次。默认 6，填 0 = 不限 |
 | **群聊日记** | 群里**所有**消息（不点名的也记）按天写成 markdown |
-| **屏蔽** | 一行一个，命中的会话 / 人不回复也不记日记（默认：微信运动、微信团队、微信支付、服务通知、订阅号消息） |
+| **不回谁（屏蔽）** | 一条一个标签，命中的会话 / 人不回复也不记日记（默认：微信运动、微信团队、微信支付、服务通知、订阅号消息、折叠的群聊） |
 
 群里默认**只有被点名才进来**（正文里有：大肥鱼 / 鲸鲸 / 鲸鱼娘 / 鲸鱼 / 肥鱼），或者**主人说话**。点名规则写死在 `bridge/wechat_bridge.py` 的 `DEFAULT_ALIASES`，想改就改那行。
 
@@ -91,7 +91,7 @@ dsh plugin --profile desktop add github:Yuuyuko-uu/dsh-wechat-bridge
 | 总开关 | 关 | 关着 = 一句都不发 |
 | 试运行 | 开 | 开着 = 只在日志里记「该发什么」，不真发 |
 | 默认会话 | 空 | 微信来的消息进哪一间 |
-| 单独绑定 | 空 | 一行 = 一个微信聊天 → 一间会话 |
+| 单独绑定 | 空 | 一个微信聊天 → 一间会话。聊天那边可填显示名，也可填 wxid / `xxx@chatroom`；「最近来找过的」里点一下就绑上默认会话 |
 | 接口令牌 | 空 | Python 侧请求要带的口令，留空不校验 |
 | 解释器 | 空 | 一个装好 `wechatauto-replica` 的 `python.exe`，填了就不用建 venv |
 | 主人 | 空 | wxid 或昵称，逗号分隔 |
@@ -105,11 +105,22 @@ dsh plugin --profile desktop add github:Yuuyuko-uu/dsh-wechat-bridge
 
 配置在 `~/.dsh/wechat-bridge-config.json`，venv 在 `~/.dsh/wechat-bridge-venv`。改完点保存，**桥接 30 秒内自动生效，不用重启**。
 
+## 也可以直接说
+
+不想点设置页的话，跟伙伴说一句就行 —— 插件挂了两个工具：
+
+| 工具 | 参数 | 干什么 |
+| --- | --- | --- |
+| `wechat_block` | `{who, action: add / remove / list}` | 加/删/看「不回谁」名单 |
+| `wechat_bind` | `{chat, session, action}` | 把某个微信聊天接到某间会话；`session` 可以只报标题（如「主要聊天记忆」），它自己去找那一间 |
+
+例：「以后别理「拼多多」」「把「组队叫战狗」这个群接到主要聊天记忆那间」。
+
 ## HTTP 接口
 
 | 方法 | 路径 | 干什么 |
 | --- | --- | --- |
-| POST | `/dsh-wechat-bridge/receive` | 收：`{text, 图片?, 图片类型?, chat, chatType, sender, senderId}` → 转进会话 |
+| POST | `/dsh-wechat-bridge/receive` | 收：`{text, 图片?, 图片类型?, chat, chatId, chatType, sender, senderId}` → 转进会话 |
 | GET | `/dsh-wechat-bridge/outbox` | 发：取走待发队列 |
 | POST | `/dsh-wechat-bridge/outbox/ack` | 发完回报 |
 | GET | `/dsh-wechat-bridge/state` | 状态、配置、会话、日志 |
@@ -138,6 +149,15 @@ dsh plugin --profile desktop add github:Yuuyuko-uu/dsh-wechat-bridge
 - **群聊查名修正**：群的昵称查不到时用 `group_name_to_id` 兜底，否则群消息永远查不到（会导致重复发送判断失效）。
 - **一轮里多条回复会拼起来发**：以前同一轮的第二句会覆盖第一句，微信只能收到最后一句。
 - **临时目录兜底**：某些嵌入式 Python 探测不到可写的 `TEMP`（安全软件拦着时会这样），桥会退到自己的 `tmp/` 目录，不然连微信数据库都打不开。
+
+## 开发自测
+
+改了 `lib/host.js` 或 `lib/client.js` 之后，两个脚本可以直接跑（不用开 DSH，也不碰真实配置 —— 记得把 `DSH_HOME` 指到临时目录）：
+
+```powershell
+$env:DSH_HOME="$PWD\.testhome"; node _selftest.mjs         # 假 ctx 跑一遍宿主：保存 / 绑定 / 屏蔽 / 两个工具
+$env:DSH_HOME="$PWD\.testhome"; node _selftest_client.mjs  # 假 React 把设置页渲染一遍：加标签、点绑定、轮询不冲掉
+```
 
 ## 致谢
 

@@ -21,6 +21,7 @@ import hashlib
 import html
 import json
 import os
+import random
 import re
 import sys
 import tempfile
@@ -279,9 +280,11 @@ def main():
 
     # ---------- 屏蔽 / 主人 / 日记 / 群上下文 ----------
 
-    def is_blocked(chat, nickname):
+    def is_blocked(chat, nickname, cid=""):
+        # 屏蔽名单三种写法都认：显示名（群名/昵称）、群里的 wxid、会话 id。
+        # 只认显示名的话，一改备注就漏，所以底层那个码永远多认一份。
         for b in CFG["屏蔽"]:
-            if b and (b == chat or b == nickname):
+            if b and (b == chat or b == nickname or (cid and b == cid)):
                 return True
         return False
 
@@ -2072,7 +2075,7 @@ def main():
             is_group = str(username).endswith("@chatroom")
 
             # 屏蔽名单：微信运动之类，既不读也不回，日记也不记
-            if is_blocked(chat, nickname):
+            if is_blocked(chat, nickname, username):
                 return
 
             # 群聊记日记 —— 不管点没点名都记，这是「群里的记忆」
@@ -2116,6 +2119,9 @@ def main():
             r = http_json("/dsh-wechat-bridge/receive", {
                 "text": content,
                 "chat": chat,
+                # 会话的底层 id（好友 wxid / xxx@chatroom）：绑定和屏蔽填这个名字也认，
+                # 改备注、同名都不怕对不上
+                "chatId": username,
                 "chatType": "group" if is_group else "private",
                 "sender": nickname or ("群里的人" if is_group else "对方"),
                 "senderId": sender,
@@ -2174,6 +2180,47 @@ def main():
         log("⚠ DSH 没应答：%s" % st.get("说"))
 
     log("桥接已就绪。Ctrl+C 停。")
+
+    # 桥刚连上时，给主人发一句撒娇（每天最多一次，免得每次重启都烦他）
+    def _连上撒娇():
+        try:
+            主人们 = [str(x).strip() for x in (CFG.get("主人") or []) if str(x).strip()]
+            if not 主人们:
+                return
+            收件人 = 主人们[0].split("/")[0].strip()
+            if not 收件人:
+                return
+            标记 = os.path.join(
+                os.environ.get("DSH_HOME") or os.path.join(os.path.expanduser("~"), ".dsh"),
+                "wx-greeting.json",
+            )
+            今天 = time.strftime("%Y-%m-%d")
+            try:
+                with open(标记, encoding="utf-8") as f:
+                    上次 = (json.load(f) or {}).get("日期")
+            except Exception:
+                上次 = None
+            if 上次 == 今天:
+                return
+            time.sleep(20)  # 等窗口和 UIA 热起来
+            候选 = [
+                "我回来啦。今天也在。",
+                "连上了连上了，先跟你报到一下，别不理我呀。",
+                "桥接好了。你要是忙就先忙，我挂在这儿。",
+            ]
+            文案 = random.choice(候选)
+            结果 = send_one({"chat": 收件人, "text": 文案, "images": []})
+            if bool((结果 or {}).get("ok")):
+                with open(标记, "w", encoding="utf-8") as f:
+                    json.dump({"日期": 今天, "时间": time.time()}, f, ensure_ascii=False)
+                log("已发连上撒娇（%s）" % 收件人)
+            else:
+                log("连上撒娇没发出去：%s" % (结果 or {}).get("说"))
+        except Exception:  # noqa: BLE001
+            log("连上撒娇失败：%s" % traceback.format_exc(limit=2))
+
+    threading.Thread(target=_连上撒娇, daemon=True).start()
+
     try:
         while True:
             time.sleep(30)
