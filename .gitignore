@@ -1,5 +1,6 @@
 node_modules/
 tmp/
+.testhome/
 bridge/tmp_*
 bridge/fallback_state.json
 __pycache__/

@@ -37,6 +37,20 @@ dsh plugin --profile desktop add github:thawline/dsh-wechat-bridge
 
 之后在微信里跟**文件传输助手**说话，就等于跟伙伴说话；别人的私聊、群里的话也会转进来。
 
+## 不想装 Python？用自带的运行环境
+
+本仓库的 Release 里有一份打好的 Python 3.12 运行环境（Windows x64，已经装好 `wechatauto-replica`、`uiautomation`、`numpy`、`Pillow`、`pywin32`、`comtypes` 等，不需要再联网装东西）。
+
+```
+解压 wechat-bridge-runtime-win64-py312.zip
+把里面的 python 文件夹放到  ~/.dsh/wechat-bridge-runtime/python
+（也就是 C:\Users\<你>\.dsh\wechat-bridge-runtime\python\python.exe 存在）
+```
+
+插件启动桥接时会自己找这个位置，不用填「解释器」、也不用点「装依赖」。想放别处也行，把那个 `python.exe` 的路径填进设置里的「解释器」就行。
+
+> 这份环境是绿色版：整个文件夹搬到哪都能跑，删掉就等于卸载。装依赖时如果发现它是好的，会直接用，不会建 venv。
+
 ## 权限：只有主人能动电脑
 
 | 谁 | 能干什么 |

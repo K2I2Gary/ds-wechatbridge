@@ -12,6 +12,11 @@ writeFileSync(
   JSON.stringify({ 总开关: true, 试运行: false, 默认会话: 'session-aaa', 绑定: [], 屏蔽: ['微信运动'] }, null, 2),
   'utf8',
 )
+// 上一轮留下的「最近聊天」要清掉，不然「一开始是空的」这条永远过不去
+try {
+  rmSync(聊天路径, { force: true })
+} catch (error) {}
+const 期望版本 = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version
 
 const 会话 = [
   { id: 'session-aaa', 标题: '主要聊天记忆' },
@@ -81,7 +86,7 @@ const 断言 = (名, 条件, 细节) => {
 
 // 2 概况
 const 概 = await 屏.概况()
-断言('版本 1.3.0', 概.版本 === '1.3.0', 概.版本)
+断言(`版本 ${期望版本}`, 概.版本 === 期望版本, 概.版本)
 断言('最近聊天是数组', Array.isArray(概.最近聊天) && 概.最近聊天.length === 0, 概.最近聊天)
 
 // 3 半截绑定行不收
