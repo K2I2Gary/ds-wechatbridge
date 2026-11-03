@@ -756,6 +756,30 @@ def main():
         except Exception as e:
             log("后台模式补丁没打上（不影响发送）：", repr(e))
 
+    # UIA 起不来时的熔断。
+    # wechatauto 的 UIA 一失败就退化成「按固定坐标盲点」：每秒两三次扫屏、枚举窗口、
+    # 顺手最小化挡着的窗口 —— 主人看到的就是电脑卡成幻灯片，桌面还自己动。
+    # 所以连着起不来几次就先停手，别让它一直空转。
+    uia_坏 = {"连败": 0, "到": 0.0}
+
+    def _记UIA失败(原因=""):
+        uia_坏["连败"] += 1
+        文本 = str(原因)
+        缺 = ""
+        if "No module named 'numpy'" in 文本 or "No module named \"numpy\"" in 文本:
+            缺 = "（缺 numpy —— 设置 → 通到微信，点一次「装依赖」，装完重启桥接）"
+        elif "No module named" in 文本:
+            缺 = "（缺 Python 包 —— 设置 → 通到微信，点一次「装依赖」）"
+        if uia_坏["连败"] >= 3 and time.time() >= uia_坏["到"]:
+            uia_坏["到"] = time.time() + 300
+            log(
+                "UIA 连着 %d 次起不来，先停 5 分钟不再碰微信窗口（省得它盲点坐标乱点）%s"
+                % (uia_坏["连败"], 缺)
+            )
+
+    def _uia熔断中():
+        return time.time() < uia_坏["到"]
+
     def _取引擎():
         """每次发送都问一次最新的 UIA 引擎。
 
@@ -766,23 +790,38 @@ def main():
         _force_foreground 假装成功）会让窗口没真正激活、后面的点击和粘贴落空，
         切会话时直接把发送卡死。先回到原生行为：会冒头，但发得出去。
         """
+        if _uia熔断中():
+            return None
         try:
             gui = get_gui()
-            return gui._get_uia()
+            u = gui._get_uia()
+            if u is None:
+                _记UIA失败("引擎给回 None")
+                return None
+            uia_坏["连败"] = 0
+            uia_坏["到"] = 0.0
+            return u
         except Exception as e:
             log("取 UIA 引擎失败：", repr(e))
+            _记UIA失败(e)
             return None
 
     def _recover_uia(原因=""):
         """强制重新热激活 UIA（refresh=True），成功返回 True。"""
+        if _uia熔断中():
+            return False
         try:
             gui = get_gui()
             u = gui._get_uia(refresh=True)
             if u is not None:
+                uia_坏["连败"] = 0
+                uia_坏["到"] = 0.0
                 log("UIA 已重新热激活" + (("（" + 原因 + "）") if 原因 else ""))
                 return True
+            _记UIA失败("热激活给回 None")
         except Exception as e:
             log("UIA 重新热激活异常：", repr(e))
+            _记UIA失败(e)
         return False
 
     def _press_enter(次=2, ctrl=False):
@@ -1146,7 +1185,7 @@ def main():
         """
         try:
             gui = get_gui()
-            uia = gui._get_uia() if hasattr(gui, "_get_uia") else None
+            uia = _取引擎()
             if uia is None:
                 return None
             ctrl = uia._chat_input()
@@ -1168,7 +1207,7 @@ def main():
             if 框 is not None and not 框.strip():
                 return True
             gui = get_gui()
-            uia = gui._get_uia() if hasattr(gui, "_get_uia") else None
+            uia = _取引擎()
             if uia is None:
                 return False
             ctrl = uia._chat_input()
@@ -1225,7 +1264,7 @@ def main():
                 try:
                     gui._input.key(0x0D)          # VK_RETURN
                 except Exception:
-                    uia = gui._get_uia() if hasattr(gui, "_get_uia") else None
+                    uia = _取引擎()
                     if uia is None:
                         break
                     e = uia._chat_input()
@@ -1248,7 +1287,7 @@ def main():
             try:
                 # 优先用 UIA 元素定向发回车（后台也能用，不挑前台）；
                 # 全局回车只在前台窗口是微信时才按，否则会按到主人正在用的窗口上
-                uia = gui._get_uia() if hasattr(gui, "_get_uia") else None
+                uia = _取引擎()
                 输入框 = uia._chat_input() if uia is not None else None
                 if 输入框 is not None:
                     输入框.SendKeys("{Enter}", waitTime=0.05)
@@ -1303,6 +1342,11 @@ def main():
         if not chat:
             return {"ok": False, "说": "没指定发给谁（chat 空着）"}
         with send_lock:
+            # UIA 坏着的时候整条发送路都不许走：下面 _ensure_wechat_ready / open_chat /
+            # 读输入框都会进 wechatauto 的窗口操作，它一失败就退化成坐标盲点、
+            # 顺手最小化挡着的窗口 —— 队列里积着几条消息就是每秒两三次的空转。
+            if _uia熔断中():
+                return {"ok": False, "说": "UIA 起不来，先不发（5 分钟内不再试，免得它乱点桌面）"}
             窗口快照 = _快照窗口()
             守护 = _守护最小化(窗口快照.get("hwnd")) if 窗口快照.get("iconic") else None
             try:
