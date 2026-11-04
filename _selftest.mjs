@@ -1,7 +1,7 @@
 // 临时自测：假 ctx 把 host.js 跑起来，验 保存/绑定/屏蔽/工具/最近聊天
 import { apply } from './lib/host.js'
 import * as hostMod from './lib/host.js'
-import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 
 const 家 = process.env.DSH_HOME
@@ -432,16 +432,43 @@ const 收图 = await 调('/dsh-wechat-bridge/receive', {
 })
 断言('图片消息转进了会话', 收图 && 收图.ok, 收图)
 const 图片记忆 = JSON.parse(readFileSync(join(家, 'wechat-image-memory.json'), 'utf8'))
-const 记忆条 = (图片记忆.图片 || []).find((x) => x.文件 === 收图路径)
+const 记忆条 = (图片记忆.图片 || []).find((x) => x.原文件 === 收图路径)
 断言('图片描述写进了 JSON', !!记忆条 && 记忆条.聊天 === '图片测试', 记忆条)
+断言(
+  '图片复制进了工作区 wechat-images',
+  !!记忆条 && 记忆条.文件 === join(家, 'wechat-images', 'inbound.png') && existsSync(记忆条.文件),
+  记忆条,
+)
 const 记忆工具 = 工具.find((t) => t.name === 'wechat_image_memory')
 const 记忆果 = await 记忆工具.execute({ query: '图片测试' })
-断言('图片记忆可以按聊天/描述查', 记忆果 && 记忆果.ok && 记忆果.说.includes(收图路径), 记忆果)
+断言(
+  '图片记忆可以按聊天/描述查',
+  记忆果 && 记忆果.ok && 记忆果.说.includes((记忆条 && 记忆条.文件) || ''),
+  记忆果,
+)
 const 发图工具 = 工具.find((t) => t.name === 'wechat_send_image')
 const 按id发 = await 发图工具.execute({ id: 'inbound', chat: '群A' })
 断言('可以按图片 id 发回微信', 按id发 && 按id发.ok, 按id发)
 const 发件1 = await 调('/dsh-wechat-bridge/outbox', {})
-断言('按 id 发图进了发件队列', (发件1.消息 || []).some((x) => x.images.includes(收图路径)), 发件1)
+断言(
+  '按 id 发图进了发件队列',
+  (发件1.消息 || []).some((x) => x.images.includes((记忆条 && 记忆条.文件) || '')),
+  发件1,
+)
+const 图列 = await 调('/dsh-wechat-bridge/images', {})
+断言('图片列表路由返回记录', 图列 && 图列.ok && (图列.图片 || []).some((x) => x.id === 'inbound'), 图列)
+const 图删 = await 调('/dsh-wechat-bridge/images/delete', { id: 'inbound' })
+断言(
+  '删除图片会删文件和 JSON 记录',
+  图删 && 图删.ok && !!记忆条 && !existsSync(记忆条.文件) && !existsSync(收图路径),
+  图删,
+)
+const 图片记忆2 = JSON.parse(readFileSync(join(家, 'wechat-image-memory.json'), 'utf8'))
+断言(
+  '删除后 JSON 里也没有这条',
+  !(图片记忆2.图片 || []).some((x) => x.id === 'inbound'),
+  图片记忆2,
+)
 
 // 18 发图工具：本地文件能进发件队列
 const 图路径 = join(家, 'selftest.png')

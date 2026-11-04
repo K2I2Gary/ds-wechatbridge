@@ -6,6 +6,14 @@
 
 - 2026-11-04：本仓库迁到 [K2I2Gary/ds-wechatbridge](https://github.com/K2I2Gary/ds-wechatbridge)，原 [thawline/dsh-wechat-bridge](https://github.com/thawline/dsh-wechat-bridge) 作为 upstream 保留。功能版本仍为 1.3.8。
 
+## 1.11.0
+
+- **收到图片复制到会话工作区**：图片 / 表情包会从 `~/.dsh/wechat-inbound/` 复制一份到当前会话工作区的 `wechat-images/`；图片记忆 JSON 指向工作区副本，同时保留 `原文件` 路径。
+- **设置页新增「图片管理」**：网格预览（GIF 在浏览器里会动）、描述、来源、时间；支持单张删除和清空全部。
+- **删除连带文件与 JSON**：删除图片会同时删掉工作区副本、`wechat-inbound` 原文件，以及 `wechat-image-memory.json` 里的记录；清空全部同理。
+- 新增 `/images`（列表）、`/images/delete`（删除）、`/image?path=…`（预览）路由，只允许访问图片记忆里登记过的路径。
+- GIF 发到微信仍受剪贴板位图限制只发第一帧；原文件会在图片管理里保留，不会被压缩或丢弃。
+
 ## 1.10.1
 
 - **修复所有工具都没挂上**：宿主插件 `inject` 里漏了 `tools`，`ctx.tools` 拿不到，启动日志一直是

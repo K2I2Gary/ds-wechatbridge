@@ -43,8 +43,9 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 
 ## 发图 / 收图
 
-- **收图**：微信里收到的图片 / 表情包会落到 `~/.dsh/wechat-inbound/`（`images/`、`stickers/`），视觉模型先描述一遍；转进对话的消息里会带上本地文件路径和 id，伙伴可以直接转发或另存到工作区。
-- **图片记忆**：每张收到的图都会把「描述 / 文件路径 / 聊天 / 发送人 / 时间」写进 `~/.dsh/wechat-image-memory.json`（最近 500 条）。之后可以用 `wechat_image_memory` 按描述、聊天或 id 查回来。
+- **收图**：微信里收到的图片 / 表情包会落到 `~/.dsh/wechat-inbound/`（`images/`、`stickers/`），视觉模型先描述一遍；同时复制一份到当前会话工作区的 `wechat-images/`。转进对话的消息里会带上工作区路径和 id，伙伴可以直接转发或另存。
+- **图片记忆**：每张收到的图都会把「描述 / 工作区文件 / 原文件 / 聊天 / 发送人 / 时间」写进 `~/.dsh/wechat-image-memory.json`（最近 500 条）。之后可以用 `wechat_image_memory` 按描述、聊天或 id 查回来。
+- **图片管理**：设置页「图片管理」里可以看缩略图 / 描述 / 来源，单张删除或清空全部；删除会同时删工作区副本、`wechat-inbound` 原文件和 JSON 记录。GIF 在预览里会动，但发到微信时受剪贴板位图限制只发第一帧。
 - **发图**：伙伴可以调用 `wechat_send_image` 工具：
   - `path`：本地图片（png / jpg / gif / webp / bmp）
   - `url`：先下载再发；默认存到 `~/.dsh/wechat-bridge-downloads`，传 `目录` 可以指定工作区路径

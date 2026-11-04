@@ -95,6 +95,27 @@ globalThis.fetch = async (url, opt) => {
       }),
     }
   }
+  if (String(url).endsWith('/images')) {
+    return {
+      json: async () => ({
+        ok: true,
+        图片: [
+          {
+            id: 'p1',
+            描述: '雪地里的小女孩',
+            聊天: 'k2',
+            发送人: 'k2',
+            时间: '21:00',
+            文件: 'C:\\tmp\\a.gif',
+            原文件: '',
+            存在: true,
+            大小: 1234,
+            修改: 1,
+          },
+        ],
+      }),
+    }
+  }
   if (String(url).endsWith('/memory')) {
     return {
       json: async () => ({
@@ -385,6 +406,22 @@ await 等()
     String(发出去.url).endsWith('/memory/clear') &&
     发出去.体.范围 === 'chat' &&
     发出去.体.聊天 === '群A',
+  发出去,
+)
+
+// 12 图片管理：列表 + 删除
+const 图文字 = 都(树).map((n) => 绳(n)).join(' | ')
+断言('有「图片管理」区块', 图文字.includes('图片管理'), 图文字.slice(-1200))
+断言('显示图片描述', 图文字.includes('雪地里的小女孩'), 图文字.slice(-1200))
+const 删图按钮 = 都(树).find((n) => n.type === 'button' && n.props['data-wx-imgdel'] === 'p1')
+断言('图片有删除按钮', !!删图按钮, 都(树).filter((n) => n.type === 'button').map(绳))
+删图按钮.props.onClick()
+await 等()
+await 等()
+树 = 重画()
+断言(
+  '删除图片请求发出了',
+  !!发出去 && String(发出去.url).endsWith('/images/delete') && 发出去.体.id === 'p1',
   发出去,
 )
 
