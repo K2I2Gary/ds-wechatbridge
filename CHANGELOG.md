@@ -6,6 +6,12 @@
 
 - 2026-11-04：本仓库迁到 [K2I2Gary/ds-wechatbridge](https://github.com/K2I2Gary/ds-wechatbridge)，原 [thawline/dsh-wechat-bridge](https://github.com/thawline/dsh-wechat-bridge) 作为 upstream 保留。功能版本仍为 1.3.8。
 
+## 1.8.2
+
+- **主动搭话不用等**：设置页「人格画像 → 主动搭话」加了「现在就让她说一句」按钮，点了立即触发一次 `speak-up`（不等空闲计时）。需要桥接在跑、绑定的会话活着、总开关开着。
+- 自动触发仍然按「主动搭话分钟」（默认 30 分钟，每 60 秒检查一次）；想快速验证可以把它改成 1。
+- 新增 `/dsh-wechat-bridge/speak-now` 接口，`{chat?}` 可指定聊天。
+
 ## 1.8.1
 
 - **修复设置页空白**：1.8.0 把「搜索组历史」的 `useRef/useEffect` 放在了 `if (!态) return '读取中…'` 之后，首次渲染少调用、数据回来后多调用，真实 React 直接抛 hook 顺序错误，整块设置页空白。现已挪到所有 hook 之前。

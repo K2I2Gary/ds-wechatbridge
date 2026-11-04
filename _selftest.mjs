@@ -102,7 +102,8 @@ const 断言 = (名, 条件, 细节) => {
     路线.has('/dsh-wechat-bridge/state') &&
     路线.has('/dsh-wechat-bridge/web-search') &&
     路线.has('/dsh-wechat-bridge/web-search/groups') &&
-    路线.has('/dsh-wechat-bridge/web-search/weights'),
+    路线.has('/dsh-wechat-bridge/web-search/weights') &&
+    路线.has('/dsh-wechat-bridge/speak-now'),
   [...路线.keys()],
 )
 

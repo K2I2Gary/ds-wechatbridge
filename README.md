@@ -200,9 +200,10 @@ python bridge/web_search.py --set-weights 1 '{"deepseek": 3.5}' --db ~/.dsh/wech
 温度 ≤ 0.1 时，桥接会跑一个空闲计时器：
 
 - 超过「主动搭话分钟」（默认 30）没有新消息 → 让伙伴主动说一句，发回最近说话的微信聊天
+- **不想等**：设置页「主动搭话」旁边有「现在就让她说一句」按钮，点了立即触发一次
 - 每个会话每小时最多「主动搭话每小时」次（默认 2，0 = 不限）
 - DSH 重启后会从「绑定」恢复最近聊天，不用先等一条新消息；会话不活着就跳过
-- 只在总开关开、桥接在跑时触发；试运行开着只记日志
+- 只在总开关开、桥接在跑时触发；试运行开着只记日志。手动按钮同样要求桥接在跑、会话活着
 
 > 装到 DSH 后，把 `humanity.txt` 一起放到插件目录（`~/.dsh/profiles/desktop/node_modules/dsh-wechat-bridge/`），或者在设置页填它的绝对路径，或者放到 `~/.dsh/wechat-persona.txt`。
 
@@ -275,6 +276,7 @@ python bridge/web_search.py --set-weights 1 '{"deepseek": 3.5}' --db ~/.dsh/wech
 | POST | `/dsh-wechat-bridge/test-send` | 真发一条测试句 |
 | POST | `/dsh-wechat-bridge/vision-test` | 试看一张本地图片：`{图片, 类型?}` |
 | POST | `/dsh-wechat-bridge/web-search` | 独立联网搜索：`{query, limit?, save?}`；不需要桥接在跑 |
+| POST | `/dsh-wechat-bridge/speak-now` | 立即让她主动说一句：`{chat?}`；需要桥接在跑、会话活着 |
 | POST | `/dsh-wechat-bridge/bridge/install` | 装依赖 |
 | POST | `/dsh-wechat-bridge/bridge/start` / `stop` | 起停桥接 |
 
