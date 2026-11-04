@@ -6,6 +6,13 @@
 
 - 2026-11-04：本仓库迁到 [K2I2Gary/ds-wechatbridge](https://github.com/K2I2Gary/ds-wechatbridge)，原 [thawline/dsh-wechat-bridge](https://github.com/thawline/dsh-wechat-bridge) 作为 upstream 保留。功能版本仍为 1.3.8。
 
+## 1.13.0
+
+- **新增「图片倾向」**：设置页「人格与说话」里 0–1 滑杆。0 = 文字优先，0.5 = 图文均衡，1 = 尽量用图片回答；以 `system-reminder` 注入每一轮微信对话和主动搭话，提示模型先用 `wechat_image_memory` 找图、再用 `wechat_send_image` 发出，文字只做简短说明。
+- **新增「语言微调」**：自定义说话风格（回答更短 / 多用比喻 / 少用感叹号…），每轮注入；只影响风格，不改变事实、工具权限和安全规则。
+- 两个设置都支持保存并即时生效（桥接 30 秒内拉配置）。
+- 自测：host 84 条（含提示注入）、client 60 条（含滑杆 / 输入框保存）。
+
 ## 1.12.0
 
 - **支持 `.wxgf`（微信 4.x HEVC 图片 / 动画表情容器）**：内嵌 `imageio-ffmpeg` 依赖；收到 wxgf 时自动抽 HEVC 裸流转成 PNG，视觉模型能读、图片管理能预览、发图也能发。

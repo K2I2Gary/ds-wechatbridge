@@ -389,6 +389,21 @@ await 调('/dsh-wechat-bridge/save', { 温度: 0.37 })
 await 调('/dsh-wechat-bridge/save', { 温度: 'abc' })
 断言('温度非法回 0.5', 读配置().温度 === 0.5, 读配置().温度)
 
+// 温度之后：图片倾向 / 语言微调注入
+await 调('/dsh-wechat-bridge/save', { 图片倾向: 1, 语言微调: '回答更短' })
+收到的.length = 0
+await 调('/dsh-wechat-bridge/receive', {
+  text: '在吗',
+  chat: '偏好测试',
+  chatType: 'private',
+  sender: 'k2',
+  senderId: 'wxid_k2',
+})
+const 偏文 = 收到的.length ? JSON.stringify(收到的[收到的.length - 1].m) : ''
+断言('图片倾向提示注入了', /图片倾向 1\.0/.test(偏文), 偏文.slice(0, 300))
+断言('语言微调提示注入了', /语言微调/.test(偏文) && /回答更短/.test(偏文), 偏文.slice(0, 300))
+await 调('/dsh-wechat-bridge/save', { 图片倾向: 0.3, 语言微调: '' })
+
 // 17 主动搭话 / 本地库配置能存能读
 await 调('/dsh-wechat-bridge/save', {
   主动搭话: false,

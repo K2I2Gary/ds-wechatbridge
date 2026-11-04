@@ -54,6 +54,17 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
   - `chat` / `text` 可选；`只保存: true` 只下载 / 检查，不发微信
 - 也可以在回复里直接写 Markdown：`![图](C:\path\a.png)` 或本机 HTTP 图（`http://127.0.0.1:端口/...`），桥接会把它摘出来发成真正的图片。
 
+## 模型语言微调（图片倾向）
+
+设置页「人格与说话」里：
+
+- **图片倾向**滑杆 0 – 1：
+  - 0 = 文字优先；0.5 = 图文均衡；1 = 尽量用图片回答
+  - 会以 `system-reminder` 注入每一轮微信对话和主动搭话，告诉模型先找图 / 发图（`wechat_image_memory` + `wechat_send_image`），再配简短文字
+- **语言微调**输入框：自定义说话风格，例如「回答更短」「多用比喻」「少用感叹号」。每轮注入，只影响风格，不改变事实、工具权限和安全规则。
+
+两个值都走「保存设置」，桥接 30 秒内认。
+
 ## 不想装 Python？用自带的运行环境
 
 如果本仓库的 Release 里放了打好的 Python 3.12 运行环境（Windows x64，已经装好 `wechatauto-replica`、`uiautomation`、`numpy`、`zstandard`、`winsdk`、`Pillow`、`pywin32`、`comtypes` 等），可以直接用，不需要再联网装东西。

@@ -387,6 +387,33 @@ const 提示 = 都(树).map((n) => 绳(n)).join(' ')
 断言('半截行被拦住了（提示要补聊天名）', /缺聊天名|补上再存/.test(提示), 提示.slice(-300))
 断言('半截行没发出去', (发出去.体.绑定 || []).length === 1, 发出去.体.绑定)
 
+// 10.5 模型语言微调：图片倾向 + 语言微调
+// 上一条测试故意留了半截绑定行；先补回聊天名，不然保存会被拦住
+const 半截框 = 都(树).find(
+  (n) => n.type === 'input' && n.props.placeholder === '微信聊天名' && n.props.value === '',
+)
+if (半截框) 半截框.props.onChange({ target: { value: '群A' } })
+树 = 重画()
+const 文字微 = 都(树).map((n) => 绳(n)).join(' | ')
+断言('有「图片倾向」和「语言微调」', 文字微.includes('图片倾向') && 文字微.includes('语言微调'), 文字微.slice(-1000))
+const 倾向滑杆 = 都(树).find((n) => n.type === 'input' && n.props['data-wx-imagebias'])
+断言('图片倾向滑杆在', !!倾向滑杆, 都(树).filter((n) => n.type === 'input' && n.props.type === 'range').map((n) => n.props.value))
+倾向滑杆.props.onChange({ target: { value: '0.8' } })
+树 = 重画()
+const 微调框 = 找输入(树, '回答更短')
+断言('语言微调输入框在', !!微调框, 都(树).filter((n) => n.type === 'input').map((n) => n.props.placeholder))
+微调框.props.onChange({ target: { value: '回答更短' } })
+树 = 重画()
+找按钮(树, '保存设置').props.onClick()
+await 等()
+await 等()
+树 = 重画()
+断言(
+  '图片倾向 / 语言微调发出去了',
+  发出去.体.图片倾向 === 0.8 && 发出去.体.语言微调 === '回答更短',
+  发出去 && 发出去.体,
+)
+
 // 11 本地记忆：统计显示 + 按聊天清除
 const 文字2 = 都(树).map((n) => 绳(n)).join(' | ')
 断言('显示本地记忆统计', /本地记忆库：12 条微信消息/.test(文字2), 文字2.slice(-500))
