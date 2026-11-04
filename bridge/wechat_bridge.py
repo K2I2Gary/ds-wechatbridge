@@ -1516,11 +1516,11 @@ def main():
             _press_enter(2)
             _press_enter(2, ctrl=True)
             time.sleep(1.2)
-            if _already_sent(文字, chat, within=40):
+            if _already_sent(文字, chat, within=120):
                 return True
             _press_enter(2)
             time.sleep(1.2)
-            return _already_sent(文字, chat, within=40)
+            return _already_sent(文字, chat, within=120)
         except Exception as e:
             log("键盘通道失败：", repr(e))
             return False
@@ -1624,7 +1624,14 @@ def main():
                     cur = 句
             if cur.strip():
                 out.append(cur.strip())
-        return out or [str(text or "").strip()]
+        去重 = []
+        已见 = set()
+        for 一 in out:
+            if 一 in 已见:
+                continue
+            已见.add(一)
+            去重.append(一)
+        return 去重 or [str(text or "").strip()]
 
 
     def _chat_username(chat):
@@ -2121,20 +2128,20 @@ def main():
                         if _段已发过(一):
                             log("这句我发过（内存记录），跳过：%s" % 一[:30])
                             continue
-                        if _already_sent(一, chat, within=25):
+                        if _already_sent(一, chat, within=120):
                             log("这句刚发过，跳过：%s" % 一[:30])
                             _记发过(一)
                             recently_sent.append((clean_text(一), time.time()))
                             continue
                         ok = 试(lambda g, t=一: g.send_msg(t, chat, True), "发文字")
-                        if not ok and _already_sent(一, chat, within=25):
+                        if not ok and _already_sent(一, chat, within=120):
                             log("接口说失败，但库里查到了 —— 算发成功：%s" % 一[:30])
                             ok = True
                         if not ok:
                             # 最后再补一脚：字常常只是卡在输入框里没回车出去
                             if 限时(_kick_enter, 8):
                                 time.sleep(1.2)
-                                if _already_sent(一, chat, within=25):
+                                if _already_sent(一, chat, within=120):
                                     log("补回车后库里查到了 —— 算发成功：%s" % 一[:30])
                                     ok = True
                         if not ok:
