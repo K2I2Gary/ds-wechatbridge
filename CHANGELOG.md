@@ -6,6 +6,12 @@
 
 - 2026-11-04：本仓库迁到 [K2I2Gary/ds-wechatbridge](https://github.com/K2I2Gary/ds-wechatbridge)，原 [thawline/dsh-wechat-bridge](https://github.com/thawline/dsh-wechat-bridge) 作为 upstream 保留。功能版本仍为 1.3.8。
 
+## 1.10.1
+
+- **修复所有工具都没挂上**：宿主插件 `inject` 里漏了 `tools`，`ctx.tools` 拿不到，启动日志一直是
+  `工具 xxx 挂不上：cannot get property "tools" without inject` —— 7 个工具（wechat_block / wechat_bind / wechat_send_image / wechat_image_memory / local_search / keyword_search / web_search）实际上都不存在。现在补上 `tools`，模型才能真正调用。
+- 收到图片时在对话里直接提示：想原图发回微信就调用 `wechat_send_image(id=…)`，免得模型自己以为「只能出字」。
+
 ## 1.10.0
 
 - **图片记忆 JSON**：微信里收到的每张图片 / 表情包，都会把「视觉模型描述 / 文件路径 / 聊天 / 发送人 / 类型 / 原始文字 / 时间」写进 `~/.dsh/wechat-image-memory.json`（最多保留 500 条，按 id + 文件去重）。

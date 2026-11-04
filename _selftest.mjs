@@ -1,5 +1,6 @@
 // 临时自测：假 ctx 把 host.js 跑起来，验 保存/绑定/屏蔽/工具/最近聊天
 import { apply } from './lib/host.js'
+import * as hostMod from './lib/host.js'
 import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -92,6 +93,7 @@ const 断言 = (名, 条件, 细节) => {
 }
 
 // 1 路由与工具都挂上了
+断言('插件注入声明包含 tools', (hostMod.inject || []).includes('tools'), hostMod.inject)
 断言('注册了 7 个工具', 工具.length === 7, 工具.map((t) => t.name))
 断言('wechat_send_image 工具挂上了', 工具.some((t) => t.name === 'wechat_send_image'), 工具.map((t) => t.name))
 断言('wechat_image_memory 工具挂上了', 工具.some((t) => t.name === 'wechat_image_memory'), 工具.map((t) => t.name))

@@ -1,4 +1,13 @@
-# dsh-wechat-bridge 1.10.0 发布说明
+# dsh-wechat-bridge 1.10.1 发布说明
+
+> 1.10.1：修复宿主插件漏了 `inject: tools`，导致 7 个工具全部没挂上（模型因此「只会出字」）。
+
+## 1.10.1 修复
+
+- `inject` 补上 `tools`；启动日志应看到 7 个「工具 xxx 挂上了」，不再有 `cannot get property "tools" without inject`。
+- 收到图片时对话里提示：想原图发回微信就调用 `wechat_send_image(id=…)`。
+
+# 1.10.0 发布说明
 
 > 1.10.0：收到的图片会生成描述并存进 JSON；之后可以用 `wechat_image_memory` 查、用 id 把原图发回微信。
 
