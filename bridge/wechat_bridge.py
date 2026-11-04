@@ -1479,12 +1479,14 @@ def main():
             import win32con
             import win32gui
 
+            _ensure_wechat_ready(重试=0, 前台=True)
             h = _微信窗口()
             if not h:
                 return False
-            win32gui.ShowWindow(h, 9)
-            _强设前台(h)
-            time.sleep(0.5)
+            if not _微信在前台():
+                log("键盘通道：微信没拿到前台，放弃（免得把会话名粘进聊天框）")
+                return False
+            time.sleep(0.3)
             import win32api
 
             def _粘贴(s):
@@ -1565,7 +1567,14 @@ def main():
                             time.sleep(0.15)
                     except Exception:
                         pass
+                    # 隐藏到托盘时 SW_RESTORE 不一定显示，先 SW_SHOW 再恢复
+                    win32gui.ShowWindow(h, 5)          # SW_SHOW
                     win32gui.ShowWindow(h, 9)          # SW_RESTORE
+                    try:
+                        # wechatauto 自己的显示/激活逻辑，能把托盘里的主窗口拉出来
+                        get_gui().ensure_visible()
+                    except Exception:
+                        pass
                     if not _强设前台(h):
                         # 退路：先最小化再恢复，有时也能把焦点拿回来
                         try:
@@ -1586,6 +1595,31 @@ def main():
                         STATE["wx_hwnd"] = h
                     except Exception:
                         pass
+                    # 最小化/托盘恢复后窗口仍可能在 (-32000,-32000)：强制挪到屏幕内，
+                    # 否则 UIA 的控件坐标和鼠标落点都会落到别的窗口上。
+                    try:
+                        import win32api
+
+                        r = win32gui.GetWindowRect(h)
+                        宽, 高 = r[2] - r[0], r[3] - r[1]
+                        if 宽 < 200 or 高 < 200 or r[0] < -10000 or r[1] < -10000:
+                            屏宽 = win32api.GetSystemMetrics(0)
+                            屏高 = win32api.GetSystemMetrics(1)
+                            新宽 = min(1200, max(600, 屏宽 - 80))
+                            新高 = min(840, max(480, 屏高 - 80))
+                            win32gui.MoveWindow(
+                                h,
+                                max(0, (屏宽 - 新宽) // 2),
+                                max(0, (屏高 - 新高) // 2),
+                                新宽,
+                                新高,
+                                True,
+                            )
+                            time.sleep(0.3)
+                            _强设前台(h)
+                            log("微信窗口在屏幕外，已挪到可见位置：", win32gui.GetWindowRect(h))
+                    except Exception as e:
+                        log("摆正微信窗口失败：", repr(e))
                     time.sleep(0.4)
                     try:
                         import ctypes

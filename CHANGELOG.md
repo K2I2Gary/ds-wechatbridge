@@ -6,6 +6,12 @@
 
 - 2026-11-04：本仓库迁到 [K2I2Gary/ds-wechatbridge](https://github.com/K2I2Gary/ds-wechatbridge)，原 [thawline/dsh-wechat-bridge](https://github.com/thawline/dsh-wechat-bridge) 作为 upstream 保留。功能版本仍为 1.3.8。
 
+## 1.9.4
+
+- **窗口在屏幕外时强制挪回来**：主窗口在 `(-32000,-32000)`、UIA 控件坐标和鼠标落点全落到别的窗口上时，发送前先 `SW_SHOW` + `SW_RESTORE` + wechatauto `ensure_visible`；如果窗口仍不在屏幕内，直接 `MoveWindow` 到屏幕中央的可见位置。
+- **键盘兜底先确认前台**：Ctrl+F 搜索前检查微信是否真的拿到前台；拿不到就放弃，不再把会话名粘进聊天输入框。
+- 发送失败/超时的重试去重仍然保留（120 秒确认窗口、同轮/同段去重）。
+
 ## 1.9.3
 
 - **恢复自动计时器持续触发**：撤掉 1.9.2 的「每个静默期只自动搭一次」限制。自动搭话会继续按「主动搭话分钟」触发（受「主动搭话每小时」上限约束，0 = 不限）。
