@@ -1536,6 +1536,20 @@ def main():
         except Exception:
             return False
 
+    def _屏幕锁着():
+        """Windows 锁屏时输入到不了桌面，也不该去最小化锁屏窗口。"""
+        try:
+            import ctypes
+
+            u = ctypes.windll.user32
+            h = u.OpenInputDesktop(0, False, 0x0100)   # DESKTOP_READOBJECTS
+            if not h:
+                return True
+            u.CloseDesktop(h)
+            return False
+        except Exception:
+            return False
+
     def _点属微信(x, y):
         """屏幕坐标 (x,y) 的最上层窗口是否属于微信主窗口进程。
 
@@ -1585,6 +1599,8 @@ def main():
         """
         if _点属微信(x, y):
             return True
+        if _屏幕锁着():
+            return False
         try:
             import win32gui
 
@@ -1655,6 +1671,8 @@ def main():
                     import win32gui
                     import win32process
 
+                    if _屏幕锁着():
+                        continue
                     h = _微信窗口()
                     if not h:
                         continue
@@ -1976,23 +1994,19 @@ def main():
         """
         if not 前台:
             return _微信窗口() is not None
+        if _屏幕锁着():
+            return False
         for 第 in range(重试 + 1):
             try:
                 import win32gui
 
-                found = []
-
-                def cb(hwnd, _):
-                    try:
-                        if _是微信窗口(hwnd):
-                            found.append(hwnd)
-                    except Exception:
-                        pass
-                    return True
-
-                win32gui.EnumWindows(cb, None)
-                if found:
-                    h = found[0]
+                # 以引擎绑定的主窗为准。以前这里直接 EnumWindows 取第一个标题
+                # 叫 WeChat 的窗口，微信弹出搜索/引用等瞬时窗口时（标题也是
+                # WeChat、句柄几秒就失效）会拿到幽灵句柄，转头把真正的主窗
+                # 最小化了 —— 日志里的 `Invalid window handle` / 目标=一长串
+                # 随机句柄就是这么来的。
+                h = _微信窗口()
+                if h:
                     # Windows 前台锁：VS Code / DSH 在前台时 SetForegroundWindow 常常拿不到焦点。
                     # 先把当前前台窗口收起来，微信才能真正到前面；发完 _还原窗口 会把它恢复。
                     try:
@@ -2486,6 +2500,8 @@ def main():
             return 盒.get("r")
 
         with send_lock:
+            if _屏幕锁着():
+                return {"ok": False, "说": "屏幕锁着，等解锁后再发"}
             # UIA 坏着的时候整条发送路都不许走：下面 _ensure_wechat_ready / open_chat /
             # 读输入框都会进 wechatauto 的窗口操作，它一失败就退化成坐标盲点、
             # 顺手最小化挡着的窗口 —— 队列里积着几条消息就是每秒两三次的空转。
@@ -2570,7 +2586,7 @@ def main():
                         return TimeoutError("发送超时")
                     return 盒.get("e") or 盒.get("r")
 
-                def 试(动作, 名字, 重试前=1):
+                def 试(动作, 名字, 重试前=1, 查已发=None):
                     """发一次；返回失败（不是抛异常）也要当成失败 —— 窗口没接住时就是这样。"""
                     for 第 in range(重试前 + 1):
                         # 每次重试前都确认点击落点还在微信上（中途被 DSH/别的窗口盖住很常见）
@@ -2601,6 +2617,19 @@ def main():
                                 log("发出去但库里没确认，不再重发：" + 原因[:50])
                             return True
                         log("第 %d 次%s没成：%s" % (第 + 1, 名字, 原因[:80]))
+                        if (第 < 重试前 and 查已发 is not None
+                                and ("超时" in 原因 or "未确认" in 原因 or "已操作发送" in 原因)):
+                            # 发送超时很多时候字已经出去了，只是库还没确认。
+                            # 先等几秒查一下，确认没发再重试 —— 否则同一条会发两遍
+                            # （2026-11-04 实测：排队 70 秒超时后，第一段被发了两次）。
+                            for _ in range(10):
+                                time.sleep(0.6)
+                                try:
+                                    if 查已发():
+                                        log("超时/未确认，但库里查到了 —— 算发成功，不再重试：%s" % 原因[:40])
+                                        return True
+                                except Exception:
+                                    pass
                         if 第 < 重试前:
                             # 先原地重试；还是不行就重新热激活 UIA（引擎假死时只能这样救），
                             # 最后才把微信拉到前台 —— 平时不抢主人正在用的窗口
@@ -2613,17 +2642,25 @@ def main():
 
                 if text:
                     # 长内容拆成几条短消息发（一个大气泡读着累）—— 每段不超过 60 字
+                    失败段 = []
+                    成功段 = 0
                     for 一 in 拆条(text):
                         # 重试前先看库里：这句话刚发过就不再点第二遍
                         if _段已发过(一):
                             log("这句我发过（内存记录），跳过：%s" % 一[:30])
+                            成功段 += 1
                             continue
                         if _already_sent(一, chat, within=120):
                             log("这句刚发过，跳过：%s" % 一[:30])
                             _记发过(一)
                             recently_sent.append((clean_text(一), time.time()))
+                            成功段 += 1
                             continue
-                        ok = 试(lambda g, t=一: g.send_msg(t, chat, True), "发文字")
+                        ok = 试(
+                            lambda g, t=一: g.send_msg(t, chat, True),
+                            "发文字",
+                            查已发=lambda t=一: _already_sent(t, chat, within=120),
+                        )
                         if not ok and _already_sent(一, chat, within=120):
                             log("接口说失败，但库里查到了 —— 算发成功：%s" % 一[:30])
                             ok = True
@@ -2651,7 +2688,15 @@ def main():
                                 log("前台重试异常：", repr(e))
                         if not ok:
                             gui_box["gui"] = None      # 下次重建
-                            return {"ok": False, "说": "文字没发出去（微信窗口没接住）"}
+                            失败段.append(一)
+                            log("这段没发出去，继续下一段（别把后半句吞掉）：%s" % 一[:30])
+                            # 给下一段换一个干净窗口，别让坏掉的 GUI 继续拖累
+                            try:
+                                gui = get_gui()
+                                _引擎 = 限时(_取引擎, 8)
+                            except Exception:
+                                pass
+                            continue
                         # 发成功也要补回车：wechatauto 只认「粘贴成功」，
                         # 回车落空它照样报成功，字会留在框里。多按几次，
                         # 并兼容微信里「Ctrl+Enter 发送」的设置。
@@ -2663,14 +2708,21 @@ def main():
                         # 拆开发出去的每一条都记账 —— 不然文件传输助手里会被当成主人说的话读回来
                         recently_sent.append((clean_text(一), time.time()))
                         _记发过(一)
+                        成功段 += 1
                         time.sleep(0.15)
-                    recently_sent.append((clean_text(text), time.time()))
-                    _记发过(text)
-                    STATE["last_send"] = time.time()
-                    if len(recently_sent) > 100:
-                        del recently_sent[:-100]
-                    log("✅ 已发到微信（%s）：%s" % (chat, text[:40]))
-                    发了 = True
+                    if 失败段:
+                        return {
+                            "ok": False,
+                            "说": "有 %d 段没发出去（已发 %d 段）" % (len(失败段), 成功段),
+                        }
+                    if 成功段:
+                        recently_sent.append((clean_text(text), time.time()))
+                        _记发过(text)
+                        STATE["last_send"] = time.time()
+                        if len(recently_sent) > 100:
+                            del recently_sent[:-100]
+                        log("✅ 已发到微信（%s）：%s" % (chat, text[:40]))
+                        发了 = True
 
                 临时图 = []
 
@@ -2905,14 +2957,30 @@ def main():
         # 只收不发时别碰 UIA：预热会把微信窗口恢复一下，纯干跑没必要打扰桌面
         if SEND_ENABLED:
             threading.Thread(target=_预热, daemon=True).start()
+        _锁屏提示 = {"ts": 0.0}
         while True:
             time.sleep(POLL_SEC)
             if not SEND_ENABLED:
                 continue
             try:
+                # 锁屏时不要取件：宿主的 outbox 是取走即出队，取出来又发不了
+                # 就会丢消息。留在队列里，解锁后再取。
+                if _屏幕锁着():
+                    if time.time() - _锁屏提示.get("ts", 0) > 60:
+                        _锁屏提示["ts"] = time.time()
+                        log("屏幕锁着，消息先留在队列里，解锁后再发")
+                    continue
                 r = http_json("/dsh-wechat-bridge/outbox")
                 if not r.get("ok"):
                     continue
+                # 锁屏时鼠标/键盘都到不了桌面：先在这里等，别让 send_one 去
+                # 最小化锁屏窗口。消息已经从宿主队列取出来了，等解锁后接着发。
+                if (r.get("消息") or []) and _屏幕锁着():
+                    log("屏幕锁着，等解锁后再发（最多等 5 分钟）")
+                    等了 = 0
+                    while _屏幕锁着() and 等了 < 300:
+                        time.sleep(2)
+                        等了 += 2
                 这一批发过了 = False
                 for item in r.get("消息") or []:
                     # ⭐ 发送放进子线程带超时：微信窗口被最小化/被抢焦点时，UIA 有可能一直等下去，
@@ -2927,7 +2995,10 @@ def main():
 
                     线 = threading.Thread(target=干, daemon=True)
                     线.start()
-                    线.join(timeout=70)
+                    # 一次发送里有 open_chat、两次 15 秒 send、补回车、键盘兜底，
+                    # 70 秒经常在半路把线程判定超时——线程还在后台继续发，于是
+                    # 同一条被发两遍。放宽到 150 秒，让它把拆开的几段都走完。
+                    线.join(timeout=150)
                     if 线.is_alive():
                         log("⚠ 发送超时（微信窗口多半卡住了），这条先跳过，重建窗口")
                         gui_box["gui"] = None
