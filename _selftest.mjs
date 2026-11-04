@@ -92,10 +92,17 @@ const 断言 = (名, 条件, 细节) => {
 }
 
 // 1 路由与工具都挂上了
-断言('注册了 4 个工具', 工具.length === 4, 工具.map((t) => t.name))
+断言('注册了 5 个工具', 工具.length === 5, 工具.map((t) => t.name))
 断言('local_search 工具挂上了', 工具.some((t) => t.name === 'local_search'), 工具.map((t) => t.name))
 断言('keyword_search 工具挂上了', 工具.some((t) => t.name === 'keyword_search'), 工具.map((t) => t.name))
-断言('注册了路由', 路线.has('/dsh-wechat-bridge/save') && 路线.has('/dsh-wechat-bridge/state'), [...路线.keys()])
+断言('web_search 工具挂上了', 工具.some((t) => t.name === 'web_search'), 工具.map((t) => t.name))
+断言(
+  '注册了路由（含独立联网搜索）',
+  路线.has('/dsh-wechat-bridge/save') &&
+    路线.has('/dsh-wechat-bridge/state') &&
+    路线.has('/dsh-wechat-bridge/web-search'),
+  [...路线.keys()],
+)
 
 // 2 概况
 const 概 = await 屏.概况()

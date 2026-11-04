@@ -1,8 +1,15 @@
-# dsh-wechat-bridge 1.6.0 发布说明
+# dsh-wechat-bridge 1.7.0 发布说明
 
-> 本版包含 1.3.8 的功能、1.3.9–1.4.1 的启动与发送修复、1.5.0 的主动搭话和本地知识库，以及 1.6.0 的关键词注意力与联网入库。桥接 venv 已补装 `zstandard`、`winsdk`。
+> 本版包含 1.3.8 的功能、1.3.9–1.4.1 的启动与发送修复、1.5.0 的主动搭话和本地知识库、1.6.0 的关键词注意力与联网入库，以及 1.7.0 的独立联网搜索。桥接 venv 已补装 `zstandard`、`winsdk`。
 >
 > 仓库：https://github.com/K2I2Gary/ds-wechatbridge
+
+## 1.7.0 新增
+
+- **独立的联网搜索块**：设置页「四、联网搜索（独立）」，不需要启动桥接。
+- **独立的 `web_search` 工具**：`{query, limit?, save?}`，不依赖桥接进程。
+- **独立脚本**：`python bridge/web_search.py "关键词" --limit 5`，可脱离 DSH 使用。
+- 结果保存到 `~/.dsh/wechat-bridge-notes/web/`，并写入 `web_info`；本地搜索/关键词搜索可命中。
 
 ## 1.6.0 新增
 

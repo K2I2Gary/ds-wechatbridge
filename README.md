@@ -127,6 +127,21 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 - 工具参数：`local_search {query, chat?, limit?}`；`keyword_search {query, chat?, web?, limit?}`
 - 示例：把资料放进笔记目录，跟伙伴说「搜一下本地笔记：部署步骤」「联网搜一下最近的 XX，存进本地库」
 
+### 独立联网搜索（不需要启动桥接）
+
+设置页「四、联网搜索（独立）」里直接输入关键词搜索，**不依赖桥接进程**：
+
+- 搜索后保存成 markdown：`~/.dsh/wechat-bridge-notes/web/<时间>-<关键词>.md`
+- 同时写入 `web_info` 表（如果本地库开着）；下次 `local_search` / `keyword_search` 能命中
+- 模型有独立的 `web_search` 工具：`{query, limit?, save?}`
+- 也可以不开 DSH，直接跑：
+
+```powershell
+python bridge/web_search.py "DeepSeek 最近发布" --limit 5
+```
+
+- 搜索接口：Tavily（设置里填密钥）；没密钥退 DuckDuckGo HTML
+
 ## 表情包
 
 伙伴在回复里写 `[表情: 描述]`，插件会去 `dsh-meme` 的表情库里按 caption / 关键词找那张图，**当图片消息发到微信**，那串描述本身不会出现在正文里。
@@ -230,7 +245,7 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 
 ## 也可以直接说
 
-不想点设置页的话，跟伙伴说一句就行 —— 插件挂了四个工具：
+不想点设置页的话，跟伙伴说一句就行 —— 插件挂了五个工具：
 
 | 工具 | 参数 | 干什么 |
 | --- | --- | --- |
@@ -238,6 +253,7 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 | `wechat_bind` | `{chat, session, action}` | 把某个微信聊天接到某间会话；`session` 可以只报标题（如「主要聊天记忆」），它自己去找那一间 |
 | `local_search` | `{query, chat?, limit?}` | 搜本地微信历史 + 笔记 + 已入库的联网结果 |
 | `keyword_search` | `{query, chat?, web?, limit?}` | 关键词注意力排序，最多 5 条；`web=true` 联网搜索并入库 |
+| `web_search` | `{query, limit?, save?}` | 独立联网搜索，不需要桥接在跑；默认保存到本地并入库 |
 
 例：「以后别理「拼多多」」「把「组队叫战狗」这个群接到主要聊天记忆那间」「搜一下本地笔记：部署步骤」「联网搜一下最近的 XX，存进本地库」。
 
@@ -253,6 +269,7 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 | POST | `/dsh-wechat-bridge/save` | 存配置 |
 | POST | `/dsh-wechat-bridge/test-send` | 真发一条测试句 |
 | POST | `/dsh-wechat-bridge/vision-test` | 试看一张本地图片：`{图片, 类型?}` |
+| POST | `/dsh-wechat-bridge/web-search` | 独立联网搜索：`{query, limit?, save?}`；不需要桥接在跑 |
 | POST | `/dsh-wechat-bridge/bridge/install` | 装依赖 |
 | POST | `/dsh-wechat-bridge/bridge/start` / `stop` | 起停桥接 |
 

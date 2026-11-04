@@ -151,6 +151,7 @@ const 文字 = 都(树).map((n) => 绳(n)).join(' | ')
   文字.slice(0, 1600),
 )
 断言('有「联网搜索」配置', 文字.includes('联网搜索'), 文字.slice(0, 2000))
+断言('有独立的「联网搜索」区块', 文字.includes('联网搜索（独立）'), 文字.slice(0, 2500))
 断言('默认会话下拉选中了 session-aaa', !!都(树).find((n) => n.type === 'select' && n.props.value === 'session-aaa'), 都(树).filter((n) => n.type === 'select').map((n) => n.props.value))
 
 // 3 加一个「不回谁」

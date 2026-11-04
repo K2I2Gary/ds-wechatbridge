@@ -247,15 +247,12 @@ def _联网搜索(query, search_url, key, limit):
         return []
 
 
-def web_ingest(db_path, query, search_url, key, limit=5):
-    results = _联网搜索(query, search_url, key, limit)
+def web_store(db_path, query, results):
+    """把联网结果写进 web_info（会按需建表），返回写入条数。"""
     if not results:
-        return {"ok": False, "说": "联网搜索没有结果（检查网络 / 搜索密钥）", "结果": []}
-    try:
-        con = _连接(db_path)
-        _建web表(con)
-    except Exception as e:
-        return {"ok": False, "说": "写联网结果失败：%s" % e, "结果": []}
+        return 0
+    con = _连接(db_path)
+    _建web表(con)
     n = 0
     now = time.time()
     try:
@@ -284,10 +281,19 @@ def web_ingest(db_path, query, search_url, key, limit=5):
             )
             n += 1
         con.commit()
-    except Exception as e:
+    finally:
         con.close()
+    return n
+
+
+def web_ingest(db_path, query, search_url, key, limit=5):
+    results = _联网搜索(query, search_url, key, limit)
+    if not results:
+        return {"ok": False, "说": "联网搜索没有结果（检查网络 / 搜索密钥）", "结果": []}
+    try:
+        n = web_store(db_path, query, results)
+    except Exception as e:
         return {"ok": False, "说": "写联网结果失败：%s" % e, "结果": []}
-    con.close()
     return {"ok": True, "说": "联网搜索写入 %d 条" % n, "结果": results}
 
 

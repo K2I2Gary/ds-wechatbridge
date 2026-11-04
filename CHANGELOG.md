@@ -6,6 +6,13 @@
 
 - 2026-11-04：本仓库迁到 [K2I2Gary/ds-wechatbridge](https://github.com/K2I2Gary/ds-wechatbridge)，原 [thawline/dsh-wechat-bridge](https://github.com/thawline/dsh-wechat-bridge) 作为 upstream 保留。功能版本仍为 1.3.8。
 
+## 1.7.0
+
+- **独立联网搜索块**：设置页新增「四、联网搜索（独立）」，输入关键词直接搜，**不需要启动桥接**。结果可保存成本地 markdown，并写入本地库。
+- **独立的 `web_search` 工具**：`{query, limit?, save?}`，不依赖桥接进程；默认保存到「笔记目录/web/」并写 `web_info`。
+- **可单独跑的脚本**：`python bridge/web_search.py "关键词" --limit 5`，不经过 DSH 也能搜并落盘。
+- 联网结果保存后，桥接的笔记扫描会把它们纳入本地知识库；`local_search` / `keyword_search` 也能命中。
+
 ## 1.6.0
 
 - **关键词搜索 + 注意力排序**：新增 `keyword_search` 工具。在微信历史 / 笔记 / 联网结果里找关键信息，按加权注意力（关键词重叠 + 来源权重 + 时间衰减，softmax 归一化）算出占比，从高到低返回最多 5 条。设置页可调「关键词条数」（上限 5）。

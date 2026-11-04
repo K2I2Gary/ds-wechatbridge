@@ -7,6 +7,7 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bridge'))
 import local_search as ls  # noqa: E402
+import web_search as ws  # noqa: E402
 
 失败 = []
 
@@ -146,6 +147,16 @@ with tempfile.TemporaryDirectory() as d:
 
     排序 = ls.关键词检索(db, '海风', top=5, web=False)
     断言('联网信息参与注意力排序', any(x['kind'] == 'web' for x in 排序['items']), 排序)
+
+    # 独立联网搜索的落盘：不依赖桥接进程
+    save_dir = os.path.join(d, 'notes', 'web')
+    saved = ws._保存('海风与灯塔', [
+        {"title": "测试标题", "url": "https://example.com/a", "content": "海风与灯塔的说明"}
+    ], save_dir)
+    断言('独立搜索能保存成 markdown', os.path.isfile(saved), saved)
+    if os.path.isfile(saved):
+        body = open(saved, encoding='utf-8').read()
+        断言('保存内容包含查询和结果', '海风与灯塔' in body and '测试标题' in body, body[:200])
 
 if 失败:
     print('\n%d 条没过：%s' % (len(失败), '、'.join(失败)))
