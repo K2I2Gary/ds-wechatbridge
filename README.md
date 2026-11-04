@@ -1,6 +1,6 @@
 # 通到微信（dsh-wechat-bridge）
 
-> **这是修改版**：上游是 [Yuuyuko-uu/dsh-wechat-bridge](https://github.com/Yuuyuko-uu/dsh-wechat-bridge)（作者 Yuuyuko-uu，MIT）。本仓库（[thawline/dsh-wechat-bridge](https://github.com/thawline/dsh-wechat-bridge)）在原版基础上补了一批「实际用起来会疼」的地方，具体见文末「相对原版的改动」。
+> **这是修改版**：上游是 [Yuuyuko-uu/dsh-wechat-bridge](https://github.com/Yuuyuko-uu/dsh-wechat-bridge)（作者 Yuuyuko-uu，MIT），中间经过 [thawline/dsh-wechat-bridge](https://github.com/thawline/dsh-wechat-bridge) 的实用化修改。本仓库（[K2I2Gary/ds-wechatbridge](https://github.com/K2I2Gary/ds-wechatbridge)）基于 1.3.4 继续加了 1.3.5–1.3.8 的功能，具体见文末「相对原版的改动」。
 
 让 DSH 里的 AI 伙伴和微信双向聊天：**你在微信里发的话转进 DSH，伙伴说完一整轮，最后一句（和表情包图片）发回微信。**
 
@@ -22,10 +22,10 @@
 ## 装
 
 ```
-dsh plugin --profile desktop add github:thawline/dsh-wechat-bridge
+dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 ```
 
-或 设置 → 插件 → 安装，填 `github:thawline/dsh-wechat-bridge`。
+或 设置 → 插件 → 安装，填 `github:K2I2Gary/ds-wechatbridge`。
 
 装完**重启一次 DSH**，打开 **设置 → 通到微信**。
 
@@ -39,7 +39,7 @@ dsh plugin --profile desktop add github:thawline/dsh-wechat-bridge
 
 ## 不想装 Python？用自带的运行环境
 
-本仓库的 Release 里有一份打好的 Python 3.12 运行环境（Windows x64，已经装好 `wechatauto-replica`、`uiautomation`、`numpy`、`zstandard`、`Pillow`、`pywin32`、`comtypes` 等，不需要再联网装东西）。
+如果本仓库的 Release 里放了打好的 Python 3.12 运行环境（Windows x64，已经装好 `wechatauto-replica`、`uiautomation`、`numpy`、`zstandard`、`Pillow`、`pywin32`、`comtypes` 等），可以直接用，不需要再联网装东西。
 
 ```
 解压 wechat-bridge-runtime-win64-py312.zip

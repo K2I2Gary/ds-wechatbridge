@@ -1,6 +1,8 @@
 # dsh-wechat-bridge 1.3.8 发布说明
 
 > 本版在本地仓库完成，尚未替换 `~/.dsh` 里的在线插件。在线插件仍为 1.3.3；桥接 venv 已补装 `zstandard`。
+>
+> 仓库：https://github.com/K2I2Gary/ds-wechatbridge
 
 ## 本版新增
 

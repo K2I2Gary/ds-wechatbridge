@@ -43,9 +43,9 @@
   "author": "Yuuyuko-uu",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/thawline/dsh-wechat-bridge.git"
+    "url": "git+https://github.com/K2I2Gary/ds-wechatbridge.git"
   },
-  "homepage": "https://github.com/thawline/dsh-wechat-bridge#readme",
+  "homepage": "https://github.com/K2I2Gary/ds-wechatbridge#readme",
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
@@ -54,6 +54,10 @@
     {
       "name": "thawline",
       "url": "https://github.com/thawline"
+    },
+    {
+      "name": "K2I2Gary",
+      "url": "https://github.com/K2I2Gary"
     }
   ]
 }
