@@ -285,6 +285,12 @@ await 调('/dsh-wechat-bridge/save', { RAG条数: 99, RAG天数: 0 })
 断言('RAG 条数封顶 20、天数非法回 30', 读配置().RAG条数 === 20 && 读配置().RAG天数 === 30, 读配置())
 await 调('/dsh-wechat-bridge/save', { RAG: true, RAG条数: 5, RAG天数: 30 })
 
+// 14.1 微信语言：只认 自动 / 中文 / 英文，其他值回落到自动
+await 调('/dsh-wechat-bridge/save', { 微信语言: '英文' })
+断言('微信语言落盘', 读配置().微信语言 === '英文', 读配置().微信语言)
+await 调('/dsh-wechat-bridge/save', { 微信语言: 'Klingon' })
+断言('微信语言非法回自动', 读配置().微信语言 === '自动', 读配置().微信语言)
+
 // 15 人格画像：第 1 条注入、第 2 条不重复、第 3 条按间隔重提
 const 人格路径 = join(家, 'test-persona.txt')
 writeFileSync(人格路径, '你是测试人格。回答要短。', 'utf8')

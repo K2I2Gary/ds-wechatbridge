@@ -154,6 +154,95 @@ def _活跃群列表():
         return []
 
 
+# ---------- 微信界面语言：中文版 / 英文版 ----------
+# wechatauto 把搜索框和会话页签的 UIA 名字写死成中文；英文版微信是
+# “Search”/“WeChat”。默认「自动」按类名兜底（与语言包无关），也可以在
+# 设置页手动锁定中文/英文。补丁只安装一次，之后的语言切换即时生效。
+_WX_LANG = {"值": "自动", "补丁": False}
+
+
+def apply_wechat_language(语言=None):
+    """把设置页的「微信语言」应用到 wechatauto 的控件定位，返回生效的值。"""
+    v = str(语言 if 语言 is not None else _WX_LANG.get("值") or "自动").strip()
+    if v not in ("自动", "中文", "英文"):
+        v = "自动"
+    _WX_LANG["值"] = v
+    try:
+        import wechatauto.uia_driver as _ud
+    except Exception as e:
+        log("微信语言设置失败（wechatauto 没装好）：", repr(e))
+        return v
+    try:
+        # 导航栏第一个页签：中文版「微信」，英文版 “WeChat”
+        _ud.CHAT_TAB_NAME = "WeChat" if v == "英文" else "微信"
+
+        if not _WX_LANG["补丁"]:
+            _orig_present = _ud.WeChatUIA._search_box_present
+
+            def _find_edit_by_name(self, win, name):
+                def _hit(c):
+                    try:
+                        return (c.ControlTypeName == "EditControl"
+                                and (c.Name or "").strip() == name
+                                and not self._in_chat_scope(c))
+                    except Exception:
+                        return False
+
+                return _ud._find_by(win, _hit, max_depth=40)
+
+            def _search_box_present(self, win, _orig=_orig_present):
+                box = _orig(self, win)          # 中文版原逻辑
+                if box is not None:
+                    return box
+                if _WX_LANG["值"] == "英文":
+                    hit = _find_edit_by_name(self, win, "Search")
+                    if hit is not None:
+                        return hit
+
+                # 自动 / 兜底：按类名找，不依赖语言包
+                def _是搜索框(c):
+                    try:
+                        if c.ControlTypeName != "EditControl":
+                            return False
+                        if (c.ClassName or "") != "mmui::XValidatorTextEdit":
+                            return False
+                        p = c.GetParentControl()
+                        for _ in range(3):
+                            if p is None:
+                                break
+                            if (p.ClassName or "") == "mmui::XSearchField":
+                                return True
+                            p = p.GetParentControl()
+                    except Exception:
+                        pass
+                    return False
+
+                return _ud._find_by(win, _是搜索框, max_depth=40)
+
+            _ud.WeChatUIA._search_box_present = _search_box_present
+
+            # 英文版搜索框 Name 不含「搜索」，_chat_input 的结构兜底可能把它
+            # 当成聊天输入框。这里挡一下：宁可返回 None 让调用方放弃，也不要
+            # 把字粘进搜索框。
+            _orig_input = _ud.WeChatUIA._chat_input
+
+            def _chat_input(self, win=None, _orig=_orig_input):
+                ctrl = _orig(self, win)
+                try:
+                    if ctrl is not None and \
+                            (ctrl.ClassName or "") == "mmui::XValidatorTextEdit":
+                        return None
+                except Exception:
+                    pass
+                return ctrl
+
+            _ud.WeChatUIA._chat_input = _chat_input
+            _WX_LANG["补丁"] = True
+    except Exception as e:
+        log("微信语言补丁安装失败（还有 OCR 兜底）：", repr(e))
+    return v
+
+
 def refresh_config():
     """问宿主要一次配置。设置页改完不用重启桥接。"""
     global CFG, CFG_TS, CFG_READY, _LAST_ONLY
@@ -162,6 +251,9 @@ def refresh_config():
     if not isinstance(c, dict):
         return False
     try:
+        _语言 = str(c.get("微信语言") or "自动").strip()
+        if _语言 not in ("自动", "中文", "英文"):
+            _语言 = "自动"
         CFG = {
             "群上下文条数": max(0, min(50, int(c.get("群上下文条数") or 0))),
             "日记": bool(c.get("日记", True)),
@@ -179,6 +271,7 @@ def refresh_config():
             "本地库每聊条数": max(10, min(5000, _数(c.get("本地库每聊条数", 500), 500))),
             "群回复间隔秒": max(0.0, float(c.get("群回复间隔秒") or 0)),
             "群每小时上限": max(0.0, float(c.get("群每小时上限") or 0)),
+            "微信语言": _语言,
         }
         CFG["活跃群"] = _活跃群列表()
         CFG_TS = time.time()
@@ -186,6 +279,9 @@ def refresh_config():
         if CFG["只听"] != _LAST_ONLY:
             _LAST_ONLY = list(CFG["只听"])
             log("只听会话：", "、".join(_LAST_ONLY) if _LAST_ONLY else "全部（不过滤）")
+        if CFG.get("微信语言") != _WX_LANG.get("值"):
+            _实际语言 = apply_wechat_language(CFG.get("微信语言"))
+            log("微信语言：", _实际语言, "（导航栏/搜索框按这个语言找）")
         return True
     except Exception as e:
         log("解析配置失败：", repr(e))
@@ -454,6 +550,10 @@ def main():
             log("发送节流档位：", _p.name, "（%d 秒内 %d 次）" % (int(_p.window), _p.burst))
         except Exception as _e:
             log("节流档位调整失败（不影响用）：", repr(_e))
+
+        # 中英文版微信的搜索框/导航页签名字不同，先按默认「自动」装好兼容层；
+        # 设置页里的「微信语言」拉下来后会立即重设。
+        apply_wechat_language(CFG.get("微信语言") or "自动")
     except Exception as e:
         log("✗ import wechatauto 失败：", repr(e))
         log("  依赖没装好 —— 回 DSH 设置页点「装依赖」")
@@ -1046,6 +1146,8 @@ def main():
     # ---------- 发：从 DSH 取队列，用 UIA 发出去 ----------
 
     gui_box = {"gui": None}
+    # 发送前为了露出微信而被我们最小化的窗口（发完还回去）
+    遮挡缓存 = []
     send_lock = threading.Lock()
     # 刚发出去的消息：同一个微信号，自己发的都会进库 ——
     # 靠这个列表把「我们发的」跟「主人自己在手机上打的」区分开，不然会自问自答。
@@ -1085,14 +1187,61 @@ def main():
             log("WeChatGUI 已就绪")
         return gui_box["gui"]
 
+    _进程名缓存 = {}
+
+    def _进程名(pid):
+        """PID → 可执行文件名（小写）。查不到返回空串。"""
+        try:
+            return _进程名缓存[int(pid)]
+        except Exception:
+            pass
+        name = ""
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            k32 = ctypes.windll.kernel32
+            h = k32.OpenProcess(0x1000, False, int(pid))   # PROCESS_QUERY_LIMITED_INFORMATION
+            if h:
+                try:
+                    buf = ctypes.create_unicode_buffer(1024)
+                    size = wintypes.DWORD(1024)
+                    if k32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size)):
+                        name = os.path.basename(buf.value).lower()
+                finally:
+                    k32.CloseHandle(h)
+        except Exception:
+            name = ""
+        if name:
+            _进程名缓存[int(pid)] = name
+        return name
+
     def _是微信窗口(hwnd):
-        """微信主窗口的标题可能是「微信」也可能是「WeChat」，都认。"""
+        """微信主窗口：标题和进程都必须是微信，不能只看标题。
+
+        2026-11-04 实测：DSH 侧栏浏览器（Electron 的 Chrome_WidgetWin_0 顶层窗）
+        页面标题正好是 “WeChat”。只按标题匹配时桥接把它当成微信主窗：
+        `_微信在前台()` 恒为真 → 发送前不再摆正/置顶微信 → 真实鼠标点击全落到
+        DSH 上 → wechatauto 的落点守卫（进程不是微信）把每一次点击都丢掉 →
+        整条发送一路超时。微信自己的小程序窗（WeChatAppEx.exe，也叫 WeChat）
+        同理会冒名，所以这里一并排除。
+        """
         try:
             import win32gui
+            import win32process
 
             if not win32gui.IsWindow(hwnd):
                 return False
-            return str(win32gui.GetWindowText(hwnd) or "").strip().lower() in ("微信", "wechat")
+            title = str(win32gui.GetWindowText(hwnd) or "").strip().lower()
+            if title not in ("微信", "wechat", "weixin"):
+                return False
+            _, pid = win32process.GetWindowThreadProcessId(hwnd)
+            name = _进程名(pid)
+            if name:
+                return name in ("weixin.exe", "wechat.exe")
+            # 拿不到进程名（权限/进程刚退出）时退回类名：主窗是 Qt 外壳，
+            # Electron/小程序的 Chrome_WidgetWin_* 不认。
+            return str(win32gui.GetClassName(hwnd) or "").startswith("Qt")
         except Exception:
             return False
 
@@ -1173,7 +1322,10 @@ def main():
             return False
 
     def _取消置顶():
-        h = STATE.pop("wx_hwnd", None)
+        # 没走「需要前台」那条路时 STATE 里没有句柄，但微信可能还是上一次
+        # 被顶上去留下的 TOPMOST（比如桥接中途被杀）。发完统一降一次，
+        # 别让它一直压在桌面上所有窗口之上。
+        h = STATE.pop("wx_hwnd", None) or _微信窗口()
         if not h:
             return
         try:
@@ -1207,6 +1359,14 @@ def main():
 
     def _微信窗口():
         try:
+            # 有引擎时以它绑定的主窗为准（wechatauto 的评分比标题匹配靠谱）
+            gui = gui_box.get("gui")
+            h = getattr(gui, "main_hwnd", None) if gui is not None else None
+            if h and _是微信窗口(h):
+                return h
+        except Exception:
+            pass
+        try:
             import win32gui
 
             found = []
@@ -1234,6 +1394,146 @@ def main():
             return bool(h) and ctypes.windll.user32.GetForegroundWindow() == h
         except Exception:
             return False
+
+    def _点属微信(x, y):
+        """屏幕坐标 (x,y) 的最上层窗口是否属于微信主窗口进程。
+
+        wechatauto 的点击/滚轮是真实事件，按落点投递；被别的窗口压住时事件
+        会送给那个窗口（它自己的守卫还会直接丢掉这次点击）。
+        """
+        try:
+            import ctypes
+            from ctypes import wintypes
+            import win32process
+
+            h = _微信窗口()
+            if not h:
+                return True
+            _, wx_pid = win32process.GetWindowThreadProcessId(h)
+            hwnd = ctypes.windll.user32.WindowFromPoint(
+                wintypes.POINT(int(x), int(y)))
+            if not hwnd:
+                return True
+            hit_pid = wintypes.DWORD()
+            ctypes.windll.user32.GetWindowThreadProcessId(
+                hwnd, ctypes.byref(hit_pid))
+            return int(hit_pid.value) == int(wx_pid)
+        except Exception:
+            return True
+
+    def _点上顶层窗口(x, y):
+        """(x,y) 最上层的顶层窗口句柄；该点已经属于微信时返回 None。"""
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            u = ctypes.windll.user32
+            hwnd = u.WindowFromPoint(wintypes.POINT(int(x), int(y)))
+            if not hwnd:
+                return None
+            root = u.GetAncestor(hwnd, 2)      # GA_ROOT
+            return int(root or hwnd)
+        except Exception:
+            return None
+
+    def _把遮挡挪开(x, y):
+        """确保 (x,y) 的点击会落到微信上；被别的窗口压住就把那个窗口最小化。
+
+        注意只动真正压住落点的那个顶层窗口，不像 wechatauto 的
+        _minimize_blockers 那样一收一大片（会把 VS Code/DSH 全收起来）。
+        """
+        if _点属微信(x, y):
+            return True
+        try:
+            import win32gui
+
+            cover = _点上顶层窗口(x, y)
+            if cover and not _是微信窗口(cover):
+                cls = str(win32gui.GetClassName(cover) or "")
+                if cls not in ("Progman", "WorkerW", "Shell_TrayWnd"):
+                    log("发送前发现落点被 %s（%s）盖住，先把它收起来：%d,%d" % (
+                        win32gui.GetWindowText(cover) or cover, cls, x, y))
+                    if int(cover) not in 遮挡缓存:
+                        遮挡缓存.append(int(cover))
+                    win32gui.ShowWindow(cover, 6)       # SW_MINIMIZE
+                    time.sleep(0.3)
+        except Exception as e:
+            log("收起遮挡窗口失败：", repr(e))
+        # 再走一次摆正/置顶（会把微信真正顶到最前）
+        try:
+            _ensure_wechat_ready(前台=True)
+        except Exception:
+            pass
+        time.sleep(0.2)
+        return _点属微信(x, y)
+
+    def _确认落点(引擎):
+        """发送前检查「马上要被点的控件中心」有没有被别的窗口压住。
+
+        只要引擎拿得到输入框/搜索框，就用它的真实矩形校验一次落点；被压住
+        就先挪开再说。拿不到控件（会话还没开）就跳过，由调用方走 open_chat。
+        """
+        if 引擎 is None:
+            return
+        pts = []
+        try:
+            ctrl = 引擎._chat_input()
+            r = getattr(ctrl, "BoundingRectangle", None) if ctrl is not None else None
+            if r is not None and r.width() > 0 and r.height() > 0:
+                pts.append(((r.left + r.right) // 2, (r.top + r.bottom) // 2))
+        except Exception:
+            pass
+        try:
+            r = 引擎.search_box_rect()
+            if r:
+                pts.append(((r[0] + r[2]) // 2, (r[1] + r[3]) // 2))
+        except Exception:
+            pass
+        for x, y in pts:
+            if x < 0 or y < 0:
+                continue
+            if not _点属微信(x, y):
+                _把遮挡挪开(x, y)
+                break
+
+    def _前台守卫(间隔=0.4):
+        """切会话/发送期间盯着前台：微信被挤下去就重新顶上来。
+
+        2026-11-04：DSH 窗口会在 open_chat 的搜索/点击中途弹回来，把微信压到
+        后台；UIA 的点击落到 DSH 上，open_chat 超时，OCR 兜底又因为「落点不
+        属于微信」被丢掉。这里只在检测到微信不是前台时重新置顶 + 抢前台，
+        不碰 wechatauto 的 GUI 状态，避免和发送线程抢控件树。
+        """
+        stop = threading.Event()
+
+        def 跑():
+            while not stop.wait(间隔):
+                try:
+                    import ctypes
+                    import win32con
+                    import win32gui
+                    import win32process
+
+                    h = _微信窗口()
+                    if not h:
+                        continue
+                    fg = ctypes.windll.user32.GetForegroundWindow()
+                    if fg:
+                        _, fg_pid = win32process.GetWindowThreadProcessId(fg)
+                        _, wx_pid = win32process.GetWindowThreadProcessId(h)
+                        # 微信自己的弹层（搜索下拉等）在前台时别抢，否则会把
+                        # open_chat 正在操作的搜索结果关掉
+                        if int(fg_pid) == int(wx_pid):
+                            continue
+                    win32gui.SetWindowPos(
+                        h, win32con.HWND_TOPMOST, 0, 0, 0, 0,
+                        win32con.SWP_NOMOVE | win32con.SWP_NOSIZE)
+                    _强设前台(h)
+                except Exception:
+                    pass
+
+        threading.Thread(target=跑, daemon=True).start()
+        return stop
 
     def _快照窗口():
         """记下发送前窗口长什么样：句柄、是否最小化、当时的前台窗口。"""
@@ -2069,6 +2369,9 @@ def main():
                 # 每次发送前重取一次引擎：微信跑久了 accessibility 会假死，
                 # 缓存的引擎能收消息却一条也发不出去
                 _引擎 = 限时(_取引擎, 8)
+                # 文字发送靠真实鼠标点击（UIA send_text 会点输入框再 Ctrl+V）。
+                # 微信不在最上层时点击会被别的窗口吃掉，先按控件真实坐标验一次。
+                _确认落点(_引擎)
                 # 发之前先清干净输入框：上一次失败的字留在里面，
                 # 这一次回车会把它一起带出去（同一句话发两遍的根源）
                 try:
@@ -2082,10 +2385,15 @@ def main():
                     _ensure_wechat_ready(前台=True)
                     gui = get_gui()
                     _引擎 = 限时(_取引擎, 8)
+                    _确认落点(_引擎)
+                    # 切会话要连续点搜索框、点结果，中途被 DSH 抢回前台就全点空
+                    守 = _前台守卫()
                     try:
                         限时(lambda: gui.open_chat(chat), 15)
                     except Exception as e:
                         log("打开会话失败（继续试）：", repr(e))
+                    finally:
+                        守.set()
                     # 切会话这一下微信会把自己拉起来（Invoke 会话项时应用自己的行为），
                     # 这时候如果立刻按回最小化，新会话的输入框就丢焦点了，字会发不出去。
                     # 所以这里让它先露着，等这条发完在 finally 里统一收回去。
@@ -2124,10 +2432,17 @@ def main():
                 def 试(动作, 名字, 重试前=1):
                     """发一次；返回失败（不是抛异常）也要当成失败 —— 窗口没接住时就是这样。"""
                     for 第 in range(重试前 + 1):
+                        # 每次重试前都确认点击落点还在微信上（中途被 DSH/别的窗口盖住很常见）
+                        _确认落点(_引擎)
+                        # 发送期间也盯着前台：UIA/OCR 的点击和粘贴都要求微信在最上层
+                        守 = _前台守卫()
                         try:
-                            r = 带超时(lambda: 动作(gui))
-                        except Exception as e:
-                            r = e
+                            try:
+                                r = 带超时(lambda: 动作(gui))
+                            except Exception as e:
+                                r = e
+                        finally:
+                            守.set()
                         if not isinstance(r, Exception) and (r is None or r):
                             return True
                         原因 = ""
@@ -2309,6 +2624,16 @@ def main():
                 _取消置顶()
                 # 后台发送的收尾：原来最小化的继续最小化，前台还给主人原来那个窗口
                 _还原窗口(窗口快照)
+                # 发送前为了露出微信而收起的遮挡窗口，发完还回去
+                while 遮挡缓存:
+                    try:
+                        import win32gui
+
+                        hw = 遮挡缓存.pop()
+                        if win32gui.IsWindow(hw):
+                            win32gui.ShowWindow(hw, 9)   # SW_RESTORE
+                    except Exception:
+                        pass
 
     # ---------- 兜底：DSH 那边的会话事件没送到时，直接读会话文件把回复捞出来 ----------
     # 起因：2026-10-27 晚，DSH 重启后 host.js 的 session/event 不再触发，
@@ -3048,9 +3373,9 @@ def main():
 
     threading.Thread(target=outbox_loop, daemon=True).start()
 
-    log("配置：只听 %s｜群上下文 %d 条｜日记 %s｜主人 %s｜屏蔽 %d 个" % (
+    log("配置：只听 %s｜群上下文 %d 条｜日记 %s｜主人 %s｜屏蔽 %d 个｜微信语言 %s" % (
         "/".join(CFG["只听"]) or "全部", CFG["群上下文条数"], "开" if CFG["日记"] else "关",
-        "/".join(CFG["主人"]) or "（没设）", len(CFG["屏蔽"])))
+        "/".join(CFG["主人"]) or "（没设）", len(CFG["屏蔽"]), CFG.get("微信语言") or "自动"))
 
     def config_loop():
         while True:
