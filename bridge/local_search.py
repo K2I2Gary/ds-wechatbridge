@@ -106,6 +106,38 @@ def _连接(db_path):
     return con
 
 
+def _归一文本(s):
+    t = str(s or "").lower()
+    t = re.sub(r"\s+", "", t)
+    t = re.sub(r"[^\w一-鿿]+", "", t)
+    return t
+
+
+def _指纹(s):
+    return _归一文本(s)[:180]
+
+
+def _去重(项们, 已有=None):
+    """按正文指纹 / URL 去重，保留先出现的（微信/笔记优先于联网）。"""
+    seen = set(已有 or ())
+    out = []
+    for x in 项们 or []:
+        text = _指纹(x.get("text") or x.get("title") or "")
+        url = str(x.get("url") or "").strip()
+        tkey = ("t", text) if text else None
+        ukey = ("u", url) if url else None
+        if tkey and tkey in seen:
+            continue
+        if ukey and ukey in seen:
+            continue
+        if tkey:
+            seen.add(tkey)
+        if ukey:
+            seen.add(ukey)
+        out.append(x)
+    return out, seen
+
+
 def _匹配词(query):
     toks = 分词(query)
     if not toks:
@@ -186,6 +218,9 @@ def 搜索(db_path, query, chat="", limit=8):
         out["说"] = (out.get("说") + "；" if out.get("说") else "") + "联网检索失败：%s" % e
 
     con.close()
+    out["messages"], 已见 = _去重(out["messages"])
+    out["notes"], 已见 = _去重(out["notes"], 已见)
+    out["web"], _ = _去重(out["web"], 已见)
     return out
 
 
@@ -441,6 +476,7 @@ def 关键词检索(db_path, query, chat="", top=5, web=False, search_url="", ke
             候选.append({
                 "kind": "web",
                 "ref": r["url"] or "",
+                "url": r["url"] or "",
                 "title": r["title"] or "",
                 "text": r["text"] or "",
                 "ts": float(r["ts"] or 0),
@@ -448,6 +484,7 @@ def 关键词检索(db_path, query, chat="", top=5, web=False, search_url="", ke
     except sqlite3.OperationalError:
         pass
 
+    候选, _ = _去重(候选)
     词权 = _关键词权重(con)
     con.close()
     items = _注意力排序(候选, query, top, 词权)

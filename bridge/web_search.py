@@ -128,6 +128,41 @@ def _保存(query, results, save_dir, keywords=None):
         return "保存失败：%s" % e
 
 
+def _保存json(query, results, keywords, save_dir):
+    """把信息要点存成 JSON，方便本地记忆/其它程序直接调取。"""
+    try:
+        os.makedirs(save_dir, exist_ok=True)
+        name = time.strftime("%Y%m%d-%H%M%S") + "-" + _slug(query) + ".json"
+        path = os.path.join(save_dir, name)
+        data = {
+            "query": query,
+            "ts": time.time(),
+            "keywords": keywords or [],
+            "points": [
+                {
+                    "keyword": k.get("keyword"),
+                    "weight": k.get("weight"),
+                    "count": k.get("count"),
+                }
+                for k in (keywords or [])
+            ],
+            "results": [
+                {
+                    "title": r.get("title") or "",
+                    "url": r.get("url") or "",
+                    "content": str(r.get("content") or "")[:1200],
+                    "page_keywords": r.get("page_keywords") or [],
+                }
+                for r in (results or [])
+            ],
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        return path
+    except Exception as e:
+        return "保存失败：%s" % e
+
+
 def _存组(db_path, query, results, keywords):
     con = ls._连接(db_path)
     ls._建web表(con)
@@ -271,6 +306,7 @@ def main():
     keywords = _网页关键词(results, not a.no_fetch)
 
     saved = ""
+    saved_json = ""
     if not a.no_save:
         d = a.save_dir or os.path.join(
             os.environ.get("DSH_HOME") or os.path.join(os.path.expanduser("~"), ".dsh"),
@@ -278,6 +314,7 @@ def main():
             "web",
         )
         saved = _保存(query, results, d, keywords)
+        saved_json = _保存json(query, results, keywords, d)
 
     db_n = 0
     db_err = ""
@@ -298,6 +335,7 @@ def main():
             "ts": time.time(),
             "results": results,
             "keywords": keywords,
+            "saved_json": saved_json,
         }
 
     print(json.dumps({
@@ -308,9 +346,11 @@ def main():
         "keywords": keywords,
         "group": group,
         "saved": saved,
+        "saved_json": saved_json,
         "db_written": db_n,
         "db": a.db,
         "说": ("已保存到 %s" % saved if saved else "未保存文件")
+        + ("；要点 JSON：%s" % saved_json if saved_json else "")
         + ("；已写入本地库 %d 条" % db_n if db_n else "")
         + ("；本地库写入失败：%s" % db_err if db_err else ""),
     }, ensure_ascii=False))

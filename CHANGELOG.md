@@ -6,6 +6,13 @@
 
 - 2026-11-04：本仓库迁到 [K2I2Gary/ds-wechatbridge](https://github.com/K2I2Gary/ds-wechatbridge)，原 [thawline/dsh-wechat-bridge](https://github.com/thawline/dsh-wechat-bridge) 作为 upstream 保留。功能版本仍为 1.3.8。
 
+## 1.9.0
+
+- **发送提速**：出站轮询从 2 秒降到 **0.5 秒**；微信已经在前台且窗口正常时走快路径，不再每次把 VS Code 收起来再还原；同一条回复拆条发送的间隔 0.35 → 0.15 秒。模型说完到发出去明显更快。
+- **本地/联网去重**：`local_search` / `keyword_search` 按正文指纹（归一化前 180 字）和 URL 去重，微信/笔记优先，联网里重复的条目会被精简掉。
+- **关键词权重可视化**：独立搜索组里用轻量 HTML/CSS 画 Top 10 水平条形图（单系列、直接标数值、无图例，浅色/深色主题都适配；颜色按 dataviz 规范校验）。
+- **要点 JSON**：每次搜索同时保存 `.md` 和 `.json`；JSON 里含 `query / ts / keywords / points / results`，方便本地记忆或其它程序直接调取；搜索组卡片会显示 JSON 路径。
+
 ## 1.8.2
 
 - **主动搭话不用等**：设置页「人格画像 → 主动搭话」加了「现在就让她说一句」按钮，点了立即触发一次 `speak-up`（不等空闲计时）。需要桥接在跑、绑定的会话活着、总开关开着。

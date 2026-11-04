@@ -1,4 +1,5 @@
 # 自测：本地知识库（SQLite FTS5）—— 建临时库、写入、检索
+import json
 import os
 import sqlite3
 import sys
@@ -185,6 +186,27 @@ with tempfile.TemporaryDirectory() as d:
 
     排序 = ls.关键词检索(db, '海风', top=5)
     断言('带权重的关键词检索可用', 排序['ok'] and 排序['items'], 排序)
+
+    # 去重：同一内容 / 同一 URL 只留一条
+    去, _ = ls._去重([
+        {"text": "海风 灯塔"},
+        {"text": "海风灯塔"},
+        {"text": "别的内容", "url": "https://a"},
+        {"text": "另一段", "url": "https://a"},
+    ])
+    断言('同一内容 / URL 会去重', len(去) == 2, 去)
+
+    # 信息要点 JSON
+    json_path = ws._保存json(
+        '海风与灯塔',
+        [{"title": "T", "url": "https://x", "content": "正文"}],
+        [{"keyword": "海风", "weight": 3.5, "count": 2}],
+        save_dir,
+    )
+    断言('信息要点存成 JSON', os.path.isfile(json_path), json_path)
+    if os.path.isfile(json_path):
+        要点 = json.load(open(json_path, encoding='utf-8'))
+        断言('JSON 里有查询 / 关键词 / 结果', 要点.get('query') == '海风与灯塔' and 要点.get('keywords') and 要点.get('results'), 要点)
 
 if 失败:
     print('\n%d 条没过：%s' % (len(失败), '、'.join(失败)))

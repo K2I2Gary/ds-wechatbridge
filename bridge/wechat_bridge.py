@@ -96,7 +96,7 @@ TOKEN = ""
 ONLY_CHATS = []
 SEND_ENABLED = True
 SKIP_OLDER = 15.0
-POLL_SEC = 2.0
+POLL_SEC = 0.5
 # 群里只有被点名才转（正文里带这些词之一）。私聊不受这个限制。
 ALIASES = []
 DEFAULT_ALIASES = "大肥鱼,鲸鲸,鲸鱼娘,鲸鱼,肥鱼"
@@ -206,7 +206,7 @@ def parse_args():
     p.add_argument("--aliases", default=DEFAULT_ALIASES, help="群里叫这些名字才算在跟我说话")
     p.add_argument("--no-send", action="store_true", help="只收不发")
     p.add_argument("--skip-older", type=float, default=15.0)
-    p.add_argument("--poll", type=float, default=2.0)
+    p.add_argument("--poll", type=float, default=0.5)
     p.add_argument("--test-image", default="", help="只看一张本地图片然后退出（调视图用）")
     a = p.parse_args()
 
@@ -216,7 +216,7 @@ def parse_args():
     ALIASES = [x.strip() for x in str(a.aliases or "").split(",") if x.strip()]
     SEND_ENABLED = not a.no_send
     SKIP_OLDER = float(a.skip_older or 15.0)
-    POLL_SEC = float(a.poll or 2.0)
+    POLL_SEC = float(a.poll or 0.5)
     return a
 
 
@@ -2010,12 +2010,20 @@ def main():
             if _uia熔断中():
                 return {"ok": False, "说": "UIA 起不来，先不发（5 分钟内不再试，免得它乱点桌面）"}
             窗口快照 = _快照窗口()
-            # 发送前统一把微信摆到前台：最小化 / 托盘 / 被 VS Code 挡住时，
-            # UIA 的旧坐标会让点击落到别的窗口，或者让查询直接卡住。
+            # 只有微信不在前台 / 最小化 / 屏幕外时才摆正窗口；已经在前台就走快路径，
+            # 不再每次把 VS Code 收起来再还原，模型说完话到发出去能快一截。
+            需要前台 = (
+                bool(窗口快照.get("iconic"))
+                or not bool(窗口快照.get("visible", True))
+                or not _窗口在屏幕内(窗口快照.get("hwnd"))
+            )
             # 发完 _还原窗口 会把原前台窗口还回去。
             守护 = _守护最小化(窗口快照.get("hwnd")) if 窗口快照.get("iconic") else None
             try:
-                _ensure_wechat_ready(前台=True)
+                if 需要前台 or not _微信在前台():
+                    _ensure_wechat_ready(前台=True)
+                else:
+                    _ensure_wechat_ready(前台=False)
                 gui = get_gui()
                 # 每次发送前重取一次引擎：微信跑久了 accessibility 会假死，
                 # 缓存的引擎能收消息却一条也发不出去
@@ -2158,7 +2166,7 @@ def main():
                         # 拆开发出去的每一条都记账 —— 不然文件传输助手里会被当成主人说的话读回来
                         recently_sent.append((clean_text(一), time.time()))
                         _记发过(一)
-                        time.sleep(0.35)
+                        time.sleep(0.15)
                     recently_sent.append((clean_text(text), time.time()))
                     _记发过(text)
                     STATE["last_send"] = time.time()
@@ -2375,7 +2383,7 @@ def main():
         return {'seq': seq_a, 'text': txt_a}
 
     def outbox_loop():
-        log("出站轮询已启动（每 %.0f 秒）" % POLL_SEC)
+        log("出站轮询已启动（每 %.1f 秒）" % POLL_SEC)
 
         # 预热：第一次 get_gui()/取 UIA 引擎会把微信窗口短暂恢复一下（要建控件树），
         # 放在这里提前建好，免得真发消息时才闪那一下。

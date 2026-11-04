@@ -76,7 +76,24 @@ let 发出去 = null
 let 拉了几次 = 0
 globalThis.fetch = async (url, opt) => {
   if (String(url).includes('/web-search/groups')) {
-    return { json: async () => ({ ok: true, groups: [] }) }
+    return {
+      json: async () => ({
+        ok: true,
+        groups: [
+          {
+            id: 1,
+            query: '测试组',
+            ts: 1700000000,
+            keywords: [
+              { keyword: '海风', weight: 3.5, count: 2 },
+              { keyword: '灯塔', weight: 1.0, count: 1 },
+            ],
+            results: [{ title: '测试结果', url: 'https://example.com', content: '内容' }],
+            saved_json: 'C:\\tmp\\test.json',
+          },
+        ],
+      }),
+    }
   }
   if (String(url).endsWith('/state')) {
     拉了几次 += 1
@@ -161,6 +178,12 @@ const 文字 = 都(树).map((n) => 绳(n)).join(' | ')
   文字.includes('关键词权重') && 文字.includes('每次搜索存成一组'),
   文字.slice(0, 3000),
 )
+断言(
+  '搜索组渲染了关键词条形图',
+  文字.includes('关键词权重（条形越长权重越高'),
+  文字.slice(-1600),
+)
+断言('搜索组显示要点 JSON 路径', 文字.includes('test.json'), 文字.slice(-1600))
 断言('默认会话下拉选中了 session-aaa', !!都(树).find((n) => n.type === 'select' && n.props.value === 'session-aaa'), 都(树).filter((n) => n.type === 'select').map((n) => n.props.value))
 
 // 3 加一个「不回谁」

@@ -124,6 +124,7 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 - 检索：中文按二元词切，FTS5 排序；宿主提供 `local_search` 工具
 - **关键词注意力**：`keyword_search` 把微信/笔记/联网结果按「关键词重叠 × 权重 + 来源权重 + 时间衰减」打分，softmax 归一化成占比，从高到低最多返回 5 条；权重来自独立搜索区块里设置的关键词（同词取最大）
 - **联网入库**：`keyword_search` 的 `web=true`（或设置里开着「联网搜索」时默认）会调 Tavily / DuckDuckGo，把标题和摘要写进 `web_info` 表，之后本地搜索也能命中
+- **去重**：检索结果按正文指纹（归一化前 180 字）和 URL 去重，微信/笔记优先，本地和联网重合的条目只留一条
 - 工具参数：`local_search {query, chat?, limit?}`；`keyword_search {query, chat?, web?, limit?}`
 - 示例：把资料放进笔记目录，跟伙伴说「搜一下本地笔记：部署步骤」「联网搜一下最近的 XX，存进本地库」
 
@@ -134,7 +135,8 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 - 默认会**抓每条结果的网页正文**（限 1.5MB / 6 秒，4 个并发），从正文提取关键词；不想抓可以关掉「抓网页关键词」
 - **每次搜索存成一组**（最近 5 组）；组里有关键词、出现次数、权重和结果
 - 每个关键词都可以调**权重（0–10）**；权重会参与 `keyword_search` 的注意力排序
-- 搜索后保存成 markdown：`~/.dsh/wechat-bridge-notes/web/<时间>-<关键词>.md`（文件里带关键词和权重）
+- 组卡片里有 **Top 10 关键词权重条形图**（单系列、直接标数值，浅色/深色都适配）
+- 搜索后同时保存 `.md` 和 `.json`：`~/.dsh/wechat-bridge-notes/web/<时间>-<关键词>.{md,json}`；JSON 含 `query / ts / keywords / points / results`，方便本地记忆或其它程序调取
 - 同时写入 `web_info` / `search_groups` / `search_keywords` 表；下次 `local_search` / `keyword_search` 能命中
 - 模型有独立的 `web_search` 工具：`{query, limit?, save?, fetch?}`
 - 也可以不开 DSH，直接跑：
@@ -303,6 +305,7 @@ python bridge/web_search.py --set-weights 1 '{"deepseek": 3.5}' --db ~/.dsh/wech
 - **一轮里多条回复会拼起来发**：以前同一轮的第二句会覆盖第一句，微信只能收到最后一句。
 - **临时目录兜底**：某些嵌入式 Python 探测不到可写的 `TEMP`（安全软件拦着时会这样），桥会退到自己的 `tmp/` 目录，不然连微信数据库都打不开。
 - **长文本 / 动图解压**：补 `zstandard`，并在遇到 `[文本]` 占位符时回读原始行自己解压，避免长文本、卡片、动图被截成占位符。
+- **发送更快**：出站轮询 0.5 秒；微信已经在前台且窗口正常时走快路径，不反复收起/还原前台窗口；拆条发送间隔 0.15 秒。
 - **发送窗口兼容 / 还原**：窗口标题同时认 `微信` 和 `WeChat`；最小化或收托盘时先还原再发，发完按原状态收回，避免点击落到别的窗口。
 - **`winsdk` 兜底**：补上 OCR 兜底依赖，避免 `open_chat` / 发送报 `No module named 'winsdk'`。
 - **人格画像、@ 语义、历史记忆（RAG）**：见上面相应章节。
