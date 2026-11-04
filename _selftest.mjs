@@ -92,8 +92,9 @@ const 断言 = (名, 条件, 细节) => {
 }
 
 // 1 路由与工具都挂上了
-断言('注册了 6 个工具', 工具.length === 6, 工具.map((t) => t.name))
+断言('注册了 7 个工具', 工具.length === 7, 工具.map((t) => t.name))
 断言('wechat_send_image 工具挂上了', 工具.some((t) => t.name === 'wechat_send_image'), 工具.map((t) => t.name))
+断言('wechat_image_memory 工具挂上了', 工具.some((t) => t.name === 'wechat_image_memory'), 工具.map((t) => t.name))
 断言('local_search 工具挂上了', 工具.some((t) => t.name === 'local_search'), 工具.map((t) => t.name))
 断言('keyword_search 工具挂上了', 工具.some((t) => t.name === 'keyword_search'), 工具.map((t) => t.name))
 断言('web_search 工具挂上了', 工具.some((t) => t.name === 'web_search'), 工具.map((t) => t.name))
@@ -414,8 +415,33 @@ const 配K = 读配置()
   配K,
 )
 
-// 18 发图工具：本地文件能进发件队列
+// 17.5 收图：描述/路径入 JSON，之后能按 id 发回去
+await 调('/dsh-wechat-bridge/save', { 总开关: true, 只听: [], 看图: false })
+const 收图路径 = join(家, 'inbound.png')
+writeFileSync(收图路径, Buffer.from('89504e470d0a1a0a', 'hex'))
+const 收图 = await 调('/dsh-wechat-bridge/receive', {
+  text: '（发来一张图片）',
+  chat: '图片测试',
+  chatType: 'private',
+  sender: 'k2',
+  senderId: 'wxid_k2',
+  图片: [收图路径],
+  图片类型: '图片',
+})
+断言('图片消息转进了会话', 收图 && 收图.ok, 收图)
+const 图片记忆 = JSON.parse(readFileSync(join(家, 'wechat-image-memory.json'), 'utf8'))
+const 记忆条 = (图片记忆.图片 || []).find((x) => x.文件 === 收图路径)
+断言('图片描述写进了 JSON', !!记忆条 && 记忆条.聊天 === '图片测试', 记忆条)
+const 记忆工具 = 工具.find((t) => t.name === 'wechat_image_memory')
+const 记忆果 = await 记忆工具.execute({ query: '图片测试' })
+断言('图片记忆可以按聊天/描述查', 记忆果 && 记忆果.ok && 记忆果.说.includes(收图路径), 记忆果)
 const 发图工具 = 工具.find((t) => t.name === 'wechat_send_image')
+const 按id发 = await 发图工具.execute({ id: 'inbound', chat: '群A' })
+断言('可以按图片 id 发回微信', 按id发 && 按id发.ok, 按id发)
+const 发件1 = await 调('/dsh-wechat-bridge/outbox', {})
+断言('按 id 发图进了发件队列', (发件1.消息 || []).some((x) => x.images.includes(收图路径)), 发件1)
+
+// 18 发图工具：本地文件能进发件队列
 const 图路径 = join(家, 'selftest.png')
 writeFileSync(图路径, Buffer.from('89504e470d0a1a0a', 'hex'))
 const 图果 = await 发图工具.execute({ path: 图路径, chat: '群A', text: '看图' })

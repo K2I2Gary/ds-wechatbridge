@@ -6,6 +6,14 @@
 
 - 2026-11-04：本仓库迁到 [K2I2Gary/ds-wechatbridge](https://github.com/K2I2Gary/ds-wechatbridge)，原 [thawline/dsh-wechat-bridge](https://github.com/thawline/dsh-wechat-bridge) 作为 upstream 保留。功能版本仍为 1.3.8。
 
+## 1.10.0
+
+- **图片记忆 JSON**：微信里收到的每张图片 / 表情包，都会把「视觉模型描述 / 文件路径 / 聊天 / 发送人 / 类型 / 原始文字 / 时间」写进 `~/.dsh/wechat-image-memory.json`（最多保留 500 条，按 id + 文件去重）。
+- **新增 `wechat_image_memory` 工具**：按描述、聊天、发送人或 id 查询收到的图片；返回 id、描述、来源和本地路径。
+- **`wechat_send_image` 支持 `id`**：查到 id 后可以直接把原图发回微信，不用自己拼路径。
+- 转进对话的图片消息会带上 `（图片文件：…（id：…））`，模型能直接引用。
+- 自测新增：收图入库、按聊天/描述查、按 id 发回微信（host 75 条断言）。
+
 ## 1.9.9
 
 - **新增 `wechat_send_image` 工具**：伙伴可以把图片发到微信。

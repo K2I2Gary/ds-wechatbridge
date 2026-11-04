@@ -1,4 +1,15 @@
-# dsh-wechat-bridge 1.9.9 发布说明
+# dsh-wechat-bridge 1.10.0 发布说明
+
+> 1.10.0：收到的图片会生成描述并存进 JSON；之后可以用 `wechat_image_memory` 查、用 id 把原图发回微信。
+
+## 1.10.0 新增
+
+- `~/.dsh/wechat-image-memory.json`：记录描述、文件路径、聊天、发送人、类型、原始文字、时间；最多 500 条。
+- `wechat_image_memory` 工具：按描述 / 聊天 / 发送人 / id 查询。
+- `wechat_send_image` 支持 `id`：查到哪张就发哪张，不用手写路径。
+- 图片消息进对话时附带 `id`，模型可以马上转发或稍后再找。
+
+# 1.9.9 发布说明
 
 > 1.9.9：伙伴可以用 `wechat_send_image` 发图片；收到图片时对话里会带本地文件路径。
 

@@ -43,10 +43,12 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 
 ## 发图 / 收图
 
-- **收图**：微信里收到的图片 / 表情包会落到 `~/.dsh/wechat-inbound/`（`images/`、`stickers/`），视觉模型先描述一遍；转进对话的消息里会带上本地文件路径，伙伴可以直接转发或另存到工作区。
+- **收图**：微信里收到的图片 / 表情包会落到 `~/.dsh/wechat-inbound/`（`images/`、`stickers/`），视觉模型先描述一遍；转进对话的消息里会带上本地文件路径和 id，伙伴可以直接转发或另存到工作区。
+- **图片记忆**：每张收到的图都会把「描述 / 文件路径 / 聊天 / 发送人 / 时间」写进 `~/.dsh/wechat-image-memory.json`（最近 500 条）。之后可以用 `wechat_image_memory` 按描述、聊天或 id 查回来。
 - **发图**：伙伴可以调用 `wechat_send_image` 工具：
   - `path`：本地图片（png / jpg / gif / webp / bmp）
   - `url`：先下载再发；默认存到 `~/.dsh/wechat-bridge-downloads`，传 `目录` 可以指定工作区路径
+  - `id`：图片记忆里的 id，直接把收到过的原图发回去
   - `chat` / `text` 可选；`只保存: true` 只下载 / 检查，不发微信
 - 也可以在回复里直接写 Markdown：`![图](C:\path\a.png)` 或本机 HTTP 图（`http://127.0.0.1:端口/...`），桥接会把它摘出来发成真正的图片。
 
