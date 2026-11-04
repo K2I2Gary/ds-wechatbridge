@@ -6,6 +6,11 @@
 
 - 2026-11-04：本仓库迁到 [K2I2Gary/ds-wechatbridge](https://github.com/K2I2Gary/ds-wechatbridge)，原 [thawline/dsh-wechat-bridge](https://github.com/thawline/dsh-wechat-bridge) 作为 upstream 保留。功能版本仍为 1.3.8。
 
+## 1.8.1
+
+- **修复设置页空白**：1.8.0 把「搜索组历史」的 `useRef/useEffect` 放在了 `if (!态) return '读取中…'` 之后，首次渲染少调用、数据回来后多调用，真实 React 直接抛 hook 顺序错误，整块设置页空白。现已挪到所有 hook 之前。
+- 自测的迷你 React 不检查 hook 顺序，所以 1.8.0 的测试没抓到这个；这次补上了顺序校验意识（hook 全部在提前 return 之前）。
+
 ## 1.8.0
 
 - **网页抓取关键词**：独立联网搜索会抓每条结果的网页正文（限 1.5MB / 6 秒，4 个并发），从正文提取关键词，不再只看搜索摘要。
