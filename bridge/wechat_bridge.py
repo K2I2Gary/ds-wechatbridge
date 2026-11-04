@@ -756,6 +756,27 @@ def main():
           INSERT INTO notes_fts(rowid, tokens, title, path)
           VALUES(new.id, new.tokens, new.title, new.path);
         END;
+        CREATE TABLE IF NOT EXISTS web_info(
+          id INTEGER PRIMARY KEY, key TEXT UNIQUE, query TEXT, title TEXT, url TEXT,
+          text TEXT, tokens TEXT, keywords TEXT, ts REAL, source TEXT
+        );
+        CREATE VIRTUAL TABLE IF NOT EXISTS web_info_fts USING fts5(
+          tokens, title, url, text, content='web_info', content_rowid='id'
+        );
+        CREATE TRIGGER IF NOT EXISTS web_info_ai AFTER INSERT ON web_info BEGIN
+          INSERT INTO web_info_fts(rowid, tokens, title, url, text)
+          VALUES(new.id, new.tokens, new.title, new.url, new.text);
+        END;
+        CREATE TRIGGER IF NOT EXISTS web_info_ad AFTER DELETE ON web_info BEGIN
+          INSERT INTO web_info_fts(web_info_fts, rowid, tokens, title, url, text)
+          VALUES('delete', old.id, old.tokens, old.title, old.url, old.text);
+        END;
+        CREATE TRIGGER IF NOT EXISTS web_info_au AFTER UPDATE ON web_info BEGIN
+          INSERT INTO web_info_fts(web_info_fts, rowid, tokens, title, url, text)
+          VALUES('delete', old.id, old.tokens, old.title, old.url, old.text);
+          INSERT INTO web_info_fts(rowid, tokens, title, url, text)
+          VALUES(new.id, new.tokens, new.title, new.url, new.text);
+        END;
         """)
 
     def _本地库连接():

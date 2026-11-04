@@ -56,6 +56,7 @@ with tempfile.TemporaryDirectory() as d:
     db = os.path.join(d, 'memory.db')
     con = sqlite3.connect(db)
     con.executescript(SCHEMA)
+    con.executescript(ls._WEB_SCHEMA)
     now = time.time()
     rows = [
         ('m1', '玩瓦玩的', '1@chatroom', '张三', '今晚去吃火锅吗', now - 3600),
@@ -71,6 +72,22 @@ with tempfile.TemporaryDirectory() as d:
     con.execute(
         "INSERT INTO notes(key,path,title,text,tokens,mtime) VALUES(?,?,?,?,?,?)",
         ('n1', 'notes/部署.md', '部署笔记', note, ' '.join(ls.分词(note)), now),
+    )
+    web_text = "爬山攻略：周末去爬山，记得带水和防晒。"
+    con.execute(
+        "INSERT INTO web_info(key,query,title,url,text,tokens,keywords,ts,source)"
+        " VALUES(?,?,?,?,?,?,?,?,?)",
+        (
+            'w1',
+            '爬山',
+            '爬山攻略',
+            'https://example.com/hike',
+            web_text,
+            ' '.join(ls.分词(web_text)),
+            ' '.join(ls._提取关键词(web_text, 5)),
+            now,
+            'web',
+        ),
     )
     con.commit()
     con.close()
@@ -92,6 +109,43 @@ with tempfile.TemporaryDirectory() as d:
 
     结果 = ls.搜索(os.path.join(d, '不存在.db'), '火锅')
     断言('库不存在时给出可读错误', 结果['ok'] is False and '本地库' in 结果['说'], 结果)
+
+    结果 = ls.搜索(db, '爬山')
+    断言('联网结果也能搜到', len(结果['web']) == 1 and '爬山' in 结果['web'][0]['text'], 结果)
+
+    排序 = ls.关键词检索(db, '火锅', top=5)
+    断言('关键词检索有结果', 排序['ok'] and len(排序['items']) >= 1, 排序)
+    断言('关键词最多 5 条', len(排序['items']) <= 5, 排序)
+    断言(
+        '注意力占比降序',
+        all(
+            排序['items'][i]['percent'] >= 排序['items'][i + 1]['percent']
+            for i in range(len(排序['items']) - 1)
+        ),
+        排序,
+    )
+    断言(
+        '注意力占比约 100',
+        abs(sum(x['percent'] for x in 排序['items']) - 100) < 1.5,
+        排序,
+    )
+    断言('关键词不为空', all(x['keyword'] for x in 排序['items']), 排序)
+
+    # 联网入库：替换网络函数，验证写库 + 后续可检索
+    原搜索 = ls._联网搜索
+    ls._联网搜索 = lambda q, u, k, l: [
+        {"title": "测试资料", "url": "https://example.com/test", "content": "测试关键字：海风与灯塔。"}
+    ]
+    try:
+        入库 = ls.web_ingest(db, '海风', 'x', '', 3)
+    finally:
+        ls._联网搜索 = 原搜索
+    断言('联网入库成功', 入库['ok'] and '写入' in 入库['说'], 入库)
+    结果 = ls.搜索(db, '灯塔')
+    断言('联网入库后能检索', len(结果['web']) == 1 and '灯塔' in 结果['web'][0]['text'], 结果)
+
+    排序 = ls.关键词检索(db, '海风', top=5, web=False)
+    断言('联网信息参与注意力排序', any(x['kind'] == 'web' for x in 排序['items']), 排序)
 
 if 失败:
     print('\n%d 条没过：%s' % (len(失败), '、'.join(失败)))

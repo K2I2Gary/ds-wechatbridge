@@ -92,8 +92,9 @@ const 断言 = (名, 条件, 细节) => {
 }
 
 // 1 路由与工具都挂上了
-断言('注册了 3 个工具', 工具.length === 3, 工具.map((t) => t.name))
+断言('注册了 4 个工具', 工具.length === 4, 工具.map((t) => t.name))
 断言('local_search 工具挂上了', 工具.some((t) => t.name === 'local_search'), 工具.map((t) => t.name))
+断言('keyword_search 工具挂上了', 工具.some((t) => t.name === 'keyword_search'), 工具.map((t) => t.name))
 断言('注册了路由', 路线.has('/dsh-wechat-bridge/save') && 路线.has('/dsh-wechat-bridge/state'), [...路线.keys()])
 
 // 2 概况
@@ -118,6 +119,19 @@ const 概 = await 屏.概况()
   { 开: 概.配置.本地库, 天数: 概.配置.本地库天数, 条数: 概.配置.本地库每聊条数 },
 )
 断言('概况里有本地库路径', !!概.本地库 && /wechat-bridge-memory\.db$/.test(概.本地库.文件 || ''), 概.本地库)
+断言(
+  '联网搜索默认开、Tavily、5 条 / 5 关键词',
+  概.配置.联网搜索 === true &&
+    /tavily/.test(概.配置.搜索地址) &&
+    概.配置.搜索条数 === 5 &&
+    概.配置.关键词条数 === 5,
+  {
+    开: 概.配置.联网搜索,
+    地址: 概.配置.搜索地址,
+    搜索: 概.配置.搜索条数,
+    关键词: 概.配置.关键词条数,
+  },
+)
 const 概Host = await 调('/dsh-wechat-bridge/state', {}, { host: '127.0.0.1:9999' })
 断言('state 用请求 Host 兜底 DSH 地址', 概Host.DSH地址 === 'http://127.0.0.1:9999', 概Host.DSH地址)
 
@@ -356,6 +370,9 @@ await 调('/dsh-wechat-bridge/save', {
   本地库: false,
   本地库天数: 7,
   本地库每聊条数: 100,
+  联网搜索: false,
+  搜索条数: 3,
+  关键词条数: 4,
 })
 const 配K = 读配置()
 断言(
@@ -366,6 +383,11 @@ const 配K = 读配置()
 断言(
   '本地库配置落盘',
   配K.本地库 === false && 配K.本地库天数 === 7 && 配K.本地库每聊条数 === 100,
+  配K,
+)
+断言(
+  '联网搜索配置落盘',
+  配K.联网搜索 === false && 配K.搜索条数 === 3 && 配K.关键词条数 === 4,
   配K,
 )
 

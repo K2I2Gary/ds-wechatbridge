@@ -150,6 +150,7 @@ const 文字 = 都(树).map((n) => 绳(n)).join(' | ')
   文字.includes('主动搭话') && 文字.includes('本地知识库'),
   文字.slice(0, 1600),
 )
+断言('有「联网搜索」配置', 文字.includes('联网搜索'), 文字.slice(0, 2000))
 断言('默认会话下拉选中了 session-aaa', !!都(树).find((n) => n.type === 'select' && n.props.value === 'session-aaa'), 都(树).filter((n) => n.type === 'select').map((n) => n.props.value))
 
 // 3 加一个「不回谁」
@@ -294,13 +295,17 @@ const 本地勾 = 都(树).find((n) => n.type === 'input' && n.props['data-wx-lo
 树 = 重画()
 都(树).find((n) => n.type === 'input' && n.props['data-wx-localkb']).props.onChange({ target: { checked: false } })
 树 = 重画()
+都(树).find((n) => n.type === 'input' && n.props['data-wx-websearch']).props.onChange({ target: { checked: false } })
+树 = 重画()
 找按钮(树, '保存设置').props.onClick()
 await 等()
 await 等()
 树 = 重画()
 断言(
-  '主动搭话 / 本地库关掉发出去了',
-  发出去.体.主动搭话 === false && 发出去.体.本地库 === false,
+  '主动搭话 / 本地库 / 联网搜索关掉发出去了',
+  发出去.体.主动搭话 === false &&
+    发出去.体.本地库 === false &&
+    发出去.体.联网搜索 === false,
   发出去 && 发出去.体,
 )
 

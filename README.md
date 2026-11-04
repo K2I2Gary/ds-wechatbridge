@@ -122,8 +122,10 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 - 微信历史：只索引「只听」里的聊天；启动时回填最近「本地库天数」（默认 180 天）/ 每聊最多「本地库每聊条数」（默认 500）条；之后新消息实时写入
 - 笔记：`~/.dsh/wechat-bridge-notes` 下的 `.md` / `.txt`，每 5 分钟扫一次；设置里可以改目录
 - 检索：中文按二元词切，FTS5 排序；宿主提供 `local_search` 工具
-- 工具参数：`{query, chat?, limit?}`；`chat` 可限定会话，`limit` 默认 8
-- 示例：把资料放进笔记目录，跟伙伴说「搜一下本地笔记：部署步骤」
+- **关键词注意力**：`keyword_search` 把微信/笔记/联网结果按「关键词重叠 + 来源权重 + 时间衰减」打分，softmax 归一化成占比，从高到低最多返回 5 条
+- **联网入库**：`keyword_search` 的 `web=true`（或设置里开着「联网搜索」时默认）会调 Tavily / DuckDuckGo，把标题和摘要写进 `web_info` 表，之后本地搜索也能命中
+- 工具参数：`local_search {query, chat?, limit?}`；`keyword_search {query, chat?, web?, limit?}`
+- 示例：把资料放进笔记目录，跟伙伴说「搜一下本地笔记：部署步骤」「联网搜一下最近的 XX，存进本地库」
 
 ## 表情包
 
@@ -213,6 +215,11 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 | 笔记目录 | 空 | 留空 = `~/.dsh/wechat-bridge-notes` |
 | 本地库天数 | 180 | 回填多少天 |
 | 本地库每聊条数 | 500 | 每个聊天回填多少条 |
+| 联网搜索 | 开 | 关键词搜索可联网抓取并写入本地库 |
+| 搜索地址 | Tavily | 联网搜索接口；默认 `https://api.tavily.com/search` |
+| 搜索密钥 | 空 | Tavily key；留空退 DuckDuckGo HTML |
+| 搜索条数 | 5 | 每次联网取几条写入库 |
+| 关键词条数 | 5 | 注意力 Top 条数（上限 5） |
 | 群回复间隔秒 | 30 | |
 | 群每小时上限 | 6 | |
 | 群聊日记 | 开 | |
@@ -223,15 +230,16 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 
 ## 也可以直接说
 
-不想点设置页的话，跟伙伴说一句就行 —— 插件挂了三个工具：
+不想点设置页的话，跟伙伴说一句就行 —— 插件挂了四个工具：
 
 | 工具 | 参数 | 干什么 |
 | --- | --- | --- |
 | `wechat_block` | `{who, action: add / remove / list}` | 加/删/看「不回谁」名单 |
 | `wechat_bind` | `{chat, session, action}` | 把某个微信聊天接到某间会话；`session` 可以只报标题（如「主要聊天记忆」），它自己去找那一间 |
-| `local_search` | `{query, chat?, limit?}` | 搜本地微信历史 + 笔记 |
+| `local_search` | `{query, chat?, limit?}` | 搜本地微信历史 + 笔记 + 已入库的联网结果 |
+| `keyword_search` | `{query, chat?, web?, limit?}` | 关键词注意力排序，最多 5 条；`web=true` 联网搜索并入库 |
 
-例：「以后别理「拼多多」」「把「组队叫战狗」这个群接到主要聊天记忆那间」「搜一下本地笔记：部署步骤」。
+例：「以后别理「拼多多」」「把「组队叫战狗」这个群接到主要聊天记忆那间」「搜一下本地笔记：部署步骤」「联网搜一下最近的 XX，存进本地库」。
 
 ## HTTP 接口
 
