@@ -25,6 +25,7 @@ import os
 import random
 import re
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import shutil
@@ -56,6 +57,59 @@ def _zstd解压(raw):
             return _ZSTD.decompress(raw)
     except Exception:
         return None
+    return None
+
+
+def _wxgf转图片(path):
+    """把微信 4.x 的 .wxgf（HEVC 裸流容器）转成 PNG；已转过就直接复用。
+
+    返回转换后的路径；不是 wxgf 就原样返回；失败返回 None。
+    优先用 imageio-ffmpeg 自带的 ffmpeg，其次 PATH 里的 ffmpeg。
+    """
+    try:
+        p = str(path or "")
+        if not p or not os.path.isfile(p):
+            return None
+        if not p.lower().endswith(".wxgf"):
+            return p
+        base = os.path.splitext(p)[0]
+        for ext in (".png", ".jpg"):
+            cand = base + ext
+            if os.path.isfile(cand) and os.path.getsize(cand) > 0:
+                return cand
+        with open(p, "rb") as f:
+            data = f.read()
+        start = data.find(b"\x00\x00\x00\x01")
+        if start < 0:
+            return None
+        hevc = data[start:]
+        exe = shutil.which("ffmpeg")
+        if not exe:
+            try:
+                import imageio_ffmpeg
+
+                exe = imageio_ffmpeg.get_ffmpeg_exe()
+            except Exception:
+                exe = None
+        if not exe:
+            return None
+        out = base + ".png"
+        with tempfile.TemporaryDirectory() as td:
+            src = os.path.join(td, "in.hevc")
+            with open(src, "wb") as f:
+                f.write(hevc)
+            r = subprocess.run(
+                [exe, "-y", "-v", "error", "-i", src, "-frames:v", "1", out],
+                capture_output=True,
+                timeout=30,
+            )
+        if r.returncode == 0 and os.path.isfile(out) and os.path.getsize(out) > 0:
+            return out
+    except Exception as e:
+        try:
+            log("wxgf 转换失败：", repr(e))
+        except Exception:
+            pass
     return None
 
 
@@ -503,6 +557,7 @@ def parse_args():
     p.add_argument("--memory-clear", default="", help="清本地记忆后退出：all / chat / notes / web")
     p.add_argument("--memory-chat", default="", help="配合 --memory-clear chat：只清这个聊天")
     p.add_argument("--memory-db", default="", help="本地记忆库路径（默认从配置/DSH_HOME 找）")
+    p.add_argument("--wxgf-convert", default="", help="把 .wxgf 转成 PNG，打印 JSON 路径后退出")
     a = p.parse_args()
 
     DSH = str(a.dsh).rstrip("/")
@@ -725,6 +780,16 @@ def http_json(path, payload=None, method=None, timeout=20):
 def main():
     global HOST_VERSION, ARGS
     ARGS = parse_args()
+
+    # wxgf 转图片：只跑一次转换，打印 JSON 后退出。
+    if ARGS.wxgf_convert:
+        q = _wxgf转图片(ARGS.wxgf_convert)
+        print(json.dumps({
+            "ok": bool(q),
+            "路径": q or "",
+            "说": "" if q else "转换失败（缺 ffmpeg / imageio-ffmpeg，或不是 HEVC）",
+        }, ensure_ascii=False))
+        return 0
 
     # 记忆维护命令：只读写本地库，打印 JSON 后退出，不导入 wechatauto。
     if ARGS.memory_stats or ARGS.memory_clear:
@@ -2179,7 +2244,11 @@ def main():
     def _localize_image(p):
         """正文 markdown 里的本机 HTTP 图（表情包服务等）先落成本地文件，再交给微信发。"""
         if not re.match(r"^https?://", p, re.I):
-            return p if os.path.exists(p) else None
+            if not os.path.exists(p):
+                return None
+            if str(p).lower().endswith(".wxgf"):
+                return _wxgf转图片(p)
+            return p
         from urllib.parse import urlparse
 
         u = urlparse(p)
@@ -3145,6 +3214,11 @@ def main():
                 username, local_id, save_dir=folder, tier="best", shard=msg.get("shard")
             )
             if p and os.path.isfile(p) and os.path.getsize(p) > 0:
+                if str(p).lower().endswith(".wxgf"):
+                    q = _wxgf转图片(p)
+                    if q:
+                        log("图片落盘：%s（wxgf 已转 png）" % q)
+                        return q
                 log("图片落盘：%s" % p)
                 return p
             return None

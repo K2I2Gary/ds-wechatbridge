@@ -6,6 +6,15 @@
 
 - 2026-11-04：本仓库迁到 [K2I2Gary/ds-wechatbridge](https://github.com/K2I2Gary/ds-wechatbridge)，原 [thawline/dsh-wechat-bridge](https://github.com/thawline/dsh-wechat-bridge) 作为 upstream 保留。功能版本仍为 1.3.8。
 
+## 1.12.0
+
+- **支持 `.wxgf`（微信 4.x HEVC 图片 / 动画表情容器）**：内嵌 `imageio-ffmpeg` 依赖；收到 wxgf 时自动抽 HEVC 裸流转成 PNG，视觉模型能读、图片管理能预览、发图也能发。
+- 桥接新增 `--wxgf-convert`：把单个 `.wxgf` 转成同目录 PNG，打印 JSON（已转换过的直接复用）。
+- 图片管理预览遇到旧 `.wxgf` 会按需转换；删除时把转换出来的 PNG/JPG 一起删。
+- 新增 `wechat_read_image` 工具：让视觉模型读任意图片（支持 wxgf），给图片记忆 id 时会把新描述写回 JSON。
+- 安装依赖时一起装 `imageio-ffmpeg`（自带 ffmpeg，不用另装系统 ffmpeg）。
+- 自测：host 82 条（含 read_image 工具）、client 56 条、Python 3 套全部通过。
+
 ## 1.11.0
 
 - **收到图片复制到会话工作区**：图片 / 表情包会从 `~/.dsh/wechat-inbound/` 复制一份到当前会话工作区的 `wechat-images/`；图片记忆 JSON 指向工作区副本，同时保留 `原文件` 路径。

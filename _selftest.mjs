@@ -94,9 +94,10 @@ const 断言 = (名, 条件, 细节) => {
 
 // 1 路由与工具都挂上了
 断言('插件注入声明包含 tools', (hostMod.inject || []).includes('tools'), hostMod.inject)
-断言('注册了 7 个工具', 工具.length === 7, 工具.map((t) => t.name))
+断言('注册了 8 个工具', 工具.length === 8, 工具.map((t) => t.name))
 断言('wechat_send_image 工具挂上了', 工具.some((t) => t.name === 'wechat_send_image'), 工具.map((t) => t.name))
 断言('wechat_image_memory 工具挂上了', 工具.some((t) => t.name === 'wechat_image_memory'), 工具.map((t) => t.name))
+断言('wechat_read_image 工具挂上了', 工具.some((t) => t.name === 'wechat_read_image'), 工具.map((t) => t.name))
 断言('local_search 工具挂上了', 工具.some((t) => t.name === 'local_search'), 工具.map((t) => t.name))
 断言('keyword_search 工具挂上了', 工具.some((t) => t.name === 'keyword_search'), 工具.map((t) => t.name))
 断言('web_search 工具挂上了', 工具.some((t) => t.name === 'web_search'), 工具.map((t) => t.name))
@@ -455,6 +456,9 @@ const 发件1 = await 调('/dsh-wechat-bridge/outbox', {})
   (发件1.消息 || []).some((x) => x.images.includes((记忆条 && 记忆条.文件) || '')),
   发件1,
 )
+const 读图工具 = 工具.find((t) => t.name === 'wechat_read_image')
+const 读图果 = await 读图工具.execute({ id: 'inbound' })
+断言('看图关着时读图工具会提示', 读图果 && 读图果.ok === false && /看图关着/.test(读图果.说), 读图果)
 const 图列 = await 调('/dsh-wechat-bridge/images', {})
 断言('图片列表路由返回记录', 图列 && 图列.ok && (图列.图片 || []).some((x) => x.id === 'inbound'), 图列)
 const 图删 = await 调('/dsh-wechat-bridge/images/delete', { id: 'inbound' })

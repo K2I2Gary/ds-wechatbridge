@@ -1,4 +1,17 @@
-# dsh-wechat-bridge 1.11.0 发布说明
+# dsh-wechat-bridge 1.12.0 发布说明
+
+> 1.12.0：支持 `.wxgf`（微信 HEVC 图片容器）——自动转 PNG，视觉模型能读、图片管理能看、发图能发。
+
+## 1.12.0 新增
+
+- 内嵌 `imageio-ffmpeg`（自带 ffmpeg），装依赖时一起装；不依赖系统 ffmpeg。
+- 收到 `.wxgf` 时抽 HEVC 裸流转 PNG：视觉描述、图片管理预览、发图都走转换后的图。
+- 桥接新增 `--wxgf-convert` CLI；转换结果缓存在原文件旁边。
+- 图片管理预览旧 wxgf 时按需转换；删除会连转换出来的 PNG/JPG 一起删。
+- 新增 `wechat_read_image` 工具：读任意图片并返回描述，支持 wxgf；给 id 会更新图片记忆。
+- 已在你当前 venv 里安装 `imageio-ffmpeg`，旧 wxgf 现在就能转。
+
+# 1.11.0 发布说明
 
 > 1.11.0：收到的图片复制到会话工作区 `wechat-images/`；设置页新增图片管理，删除时文件和 JSON 一起删。
 
