@@ -71,18 +71,18 @@ const ctx = {
 
 const 屏 = apply(ctx)
 
-const 假req = (体) => ({
-  headers: {},
+const 假req = (体, headers = {}) => ({
+  headers,
   [Symbol.asyncIterator]: async function* () {
     yield Buffer.from(JSON.stringify(体))
   },
 })
-const 调 = async (路径, 体) => {
+const 调 = async (路径, 体, headers = {}) => {
   const 处理器 = 路线.get(路径)
   if (!处理器) throw new Error('没这条路由：' + 路径)
   let 出 = null
   const res = { setHeader: () => {}, end: (s) => (出 = JSON.parse(s)) }
-  await 处理器(假req(体), res)
+  await 处理器(假req(体, headers), res)
   return 出
 }
 const 读配置 = () => JSON.parse(readFileSync(配置路径, 'utf8'))
@@ -106,6 +106,8 @@ const 概 = await 屏.概况()
   { RAG: 概.配置.RAG, 条数: 概.配置.RAG条数, 天数: 概.配置.RAG天数 },
 )
 断言('温度默认 0.5', 概.配置.温度 === 0.5, 概.配置.温度)
+const 概Host = await 调('/dsh-wechat-bridge/state', {}, { host: '127.0.0.1:9999' })
+断言('state 用请求 Host 兜底 DSH 地址', 概Host.DSH地址 === 'http://127.0.0.1:9999', 概Host.DSH地址)
 
 // 3 半截绑定行不收
 const 存1 = await 调('/dsh-wechat-bridge/save', { 绑定: [{ 聊天: '', 会话: 'session-aaa' }] })

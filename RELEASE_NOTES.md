@@ -1,8 +1,13 @@
-# dsh-wechat-bridge 1.3.8 发布说明
+# dsh-wechat-bridge 1.3.9 发布说明
 
-> 本版在本地仓库完成，尚未替换 `~/.dsh` 里的在线插件。在线插件仍为 1.3.3；桥接 venv 已补装 `zstandard`。
+> 本版包含 1.3.8 的功能和 1.3.9 的启动修复。桥接 venv 已补装 `zstandard`。
 >
 > 仓库：https://github.com/K2I2Gary/ds-wechatbridge
+
+## 1.3.9 修复
+
+- 某些 DSH 实例 `webServer.getOrigin()` 返回空，导致「启动桥接」直接 return。现在改用请求的 `Host` 头兜底 `http://127.0.0.1:<端口>`。
+- 启动失败会写日志，并在启动按钮旁显示「启动中… / 错误原因」，不再只出现在页面底部。
 
 ## 本版新增
 

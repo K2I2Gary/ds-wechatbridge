@@ -6,6 +6,13 @@
 
 - 2026-11-04：本仓库迁到 [K2I2Gary/ds-wechatbridge](https://github.com/K2I2Gary/ds-wechatbridge)，原 [thawline/dsh-wechat-bridge](https://github.com/thawline/dsh-wechat-bridge) 作为 upstream 保留。功能版本仍为 1.3.8。
 
+## 1.3.9
+
+- **修复「启动桥接」点下去没反应**：某些 DSH 实例的 `webServer.getOrigin()` 会返回空，`启动桥接()` 拿到空地址就直接 return；错误提示又只显示在设置页底部，看起来像没反应。现在：
+  - 用发起请求的 `Host` 头兜底（`http://127.0.0.1:<端口>`），不再依赖 `getOrigin()`；
+  - `/state` 的 `DSH地址` 也用同一来源；
+  - 启动失败会写进日志，并在「二、启动桥接」按钮旁显示「启动中… / 错误原因」。
+
 ## 1.3.8
 
 - **对话温度（0–1，步长 0.1）**：设置页「人格画像」里加滑杆。
