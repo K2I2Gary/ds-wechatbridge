@@ -1,6 +1,6 @@
 # 通到微信（dsh-wechat-bridge）
 
-> **这是修改版**：上游是 [Yuuyuko-uu/dsh-wechat-bridge](https://github.com/Yuuyuko-uu/dsh-wechat-bridge)（作者 Yuuyuko-uu，MIT），中间经过 [thawline/dsh-wechat-bridge](https://github.com/thawline/dsh-wechat-bridge) 的实用化修改。本仓库（[K2I2Gary/ds-wechatbridge](https://github.com/K2I2Gary/ds-wechatbridge)）基于 1.3.4 继续加了 1.3.5–1.3.8 的功能，具体见文末「相对原版的改动」。
+> **这是修改版**：上游是 [Yuuyuko-uu/dsh-wechat-bridge](https://github.com/Yuuyuko-uu/dsh-wechat-bridge)（作者 Yuuyuko-uu，MIT），中间经过 [thawline/dsh-wechat-bridge](https://github.com/thawline/dsh-wechat-bridge) 的实用化修改。本仓库（[K2I2Gary/ds-wechatbridge](https://github.com/K2I2Gary/ds-wechatbridge)）基于 1.3.4 持续维护到 **1.9.8**：从 1.3.5–1.3.8 的实用化改动，到后续的发送可靠性（拆条/去重/锁屏）、多会话主动搭话、中英文版兼容、设置页重排、本地记忆管理。完整版本清单见 [CHANGELOG.md](CHANGELOG.md)，功能概览见文末「相对原版的改动」。
 
 让 DSH 里的 AI 伙伴和微信双向聊天：**你在微信里发的话转进 DSH，伙伴说完一整轮，最后一句（和表情包图片）发回微信。**
 
@@ -37,7 +37,7 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 
 之后在微信里跟**文件传输助手**说话，就等于跟伙伴说话；别人的私聊、群里的话也会转进来。
 
-### 设置页结构（1.9.6）
+### 设置页结构（1.9.6+）
 
 设置页分成六个模块：**连接与启动 / 接收与绑定 / 人格与说话 / 群聊与记忆 / 联网搜索（独立） / 测试与日志**。常用项直接露出，解释器、令牌、人格文件、看图、本地知识库等收在「高级」折叠区；保存按钮固定在顶部。「群聊与记忆 → 清除上下文记忆」可以按聊天清除或清空全部本地记忆（RAG / 笔记 / 联网摘要）。完整线框图见 [docs/UI.md](docs/UI.md)。
 
