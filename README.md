@@ -31,7 +31,7 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 
 ## 第一次用（三步）
 
-1. **装依赖**：点「装依赖」。有现成的 Python 环境（装好 `wechatauto-replica` 的）就直接填「解释器」路径，不用建虚拟环境；没有就让它用系统 Python（3.10+）建一个。长文本 / 卡片 / 动图靠 `zstandard` 解压，也会一起装。
+1. **装依赖**：点「装依赖」。有现成的 Python 环境（装好 `wechatauto-replica` 的）就直接填「解释器」路径，不用建虚拟环境；没有就让它用系统 Python（3.10+）建一个。长文本 / 卡片 / 动图靠 `zstandard` 解压，发送的 OCR 兜底靠 `winsdk`，都会一起装。
 2. **启动**：点「启动」，下面会滚日志，看到「桥接已就绪」就成了。
 3. **选会话**：挑一间「默认会话」，打开「总开关」。先留着「试运行」看它记的「该发什么」对不对，再把试运行关掉。
 
@@ -39,7 +39,7 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 
 ## 不想装 Python？用自带的运行环境
 
-如果本仓库的 Release 里放了打好的 Python 3.12 运行环境（Windows x64，已经装好 `wechatauto-replica`、`uiautomation`、`numpy`、`zstandard`、`Pillow`、`pywin32`、`comtypes` 等），可以直接用，不需要再联网装东西。
+如果本仓库的 Release 里放了打好的 Python 3.12 运行环境（Windows x64，已经装好 `wechatauto-replica`、`uiautomation`、`numpy`、`zstandard`、`winsdk`、`Pillow`、`pywin32`、`comtypes` 等），可以直接用，不需要再联网装东西。
 
 ```
 解压 wechat-bridge-runtime-win64-py312.zip
@@ -228,6 +228,8 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 - 微信个人号自动化不是官方接口，**有封号风险**，建议先用小号 / 测试号。
 - 微信升级可能让它失效：`wechatauto` 靠一张按版本号硬编码的地址表找控件树。升级后发不出去先看设置页下面的日志。
 - **长文本 / 卡片 / 动图显示成 `[文本]`**：微信 4.x 把这些内容存成 zstd 帧，桥接环境缺 `zstandard` 时就会退化。点「装依赖」会一起装；手动补：`"<venv>\Scripts\python.exe" -m pip install zstandard`，装完重启桥接。
+- **发消息报 `No module named 'winsdk'`**：`open_chat` / 发送的 OCR 兜底需要 `winsdk`。点「装依赖」会装；手动补：`"<venv>\Scripts\python.exe" -m pip install winsdk`，装完重启桥接。
+- **微信窗口最小化 / 收托盘后点击落到别的窗口**：桥接会先按 `微信` / `WeChat` 两种标题找主窗口，最小化时先还原再发，发完按原状态收回。
 - 只在 Windows 上能用（UI Automation 是 Windows 独有的）。
 
 ## 相对原版的改动
@@ -241,6 +243,8 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 - **一轮里多条回复会拼起来发**：以前同一轮的第二句会覆盖第一句，微信只能收到最后一句。
 - **临时目录兜底**：某些嵌入式 Python 探测不到可写的 `TEMP`（安全软件拦着时会这样），桥会退到自己的 `tmp/` 目录，不然连微信数据库都打不开。
 - **长文本 / 动图解压**：补 `zstandard`，并在遇到 `[文本]` 占位符时回读原始行自己解压，避免长文本、卡片、动图被截成占位符。
+- **发送窗口兼容 / 还原**：窗口标题同时认 `微信` 和 `WeChat`；最小化或收托盘时先还原再发，发完按原状态收回，避免点击落到别的窗口。
+- **`winsdk` 兜底**：补上 OCR 兜底依赖，避免 `open_chat` / 发送报 `No module named 'winsdk'`。
 - **人格画像、@ 语义、历史记忆（RAG）**：见上面相应章节。
 
 ## 开发自测

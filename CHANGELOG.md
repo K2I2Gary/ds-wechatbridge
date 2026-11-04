@@ -6,6 +6,12 @@
 
 - 2026-11-04：本仓库迁到 [K2I2Gary/ds-wechatbridge](https://github.com/K2I2Gary/ds-wechatbridge)，原 [thawline/dsh-wechat-bridge](https://github.com/thawline/dsh-wechat-bridge) 作为 upstream 保留。功能版本仍为 1.3.8。
 
+## 1.4.0
+
+- **发送链路补 `winsdk`**：`wechatauto` 的 `open_chat` / 发送在走 OCR 兜底时会 import `winsdk`；之前为了避免源码编译把它跳过了，导致 `No module named 'winsdk'`、消息发不出去。现在 `winsdk` 有 cp312 wheel，「装依赖」会一起装，依赖检查也会检查它。
+- **微信窗口标题兼容 `WeChat`**：有些安装的微信主窗口标题是英文 `WeChat`，桥接原来只认 `微信`，窗口最小化后找不到它，UIA 点击会落到别的窗口上。现在两种标题都认。
+- **最小化 / 收在托盘时强制还原**：发送前如果微信是最小化或隐藏状态，先把窗口还原出来再点，发完仍然按原状态收回去；不再依赖 UIA 的旧控件坐标。
+
 ## 1.3.9
 
 - **修复「启动桥接」点下去没反应**：某些 DSH 实例的 `webServer.getOrigin()` 会返回空，`启动桥接()` 拿到空地址就直接 return；错误提示又只显示在设置页底部，看起来像没反应。现在：

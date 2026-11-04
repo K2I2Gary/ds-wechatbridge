@@ -834,6 +834,17 @@ def main():
             log("WeChatGUI 已就绪")
         return gui_box["gui"]
 
+    def _是微信窗口(hwnd):
+        """微信主窗口的标题可能是「微信」也可能是「WeChat」，都认。"""
+        try:
+            import win32gui
+
+            if not win32gui.IsWindow(hwnd):
+                return False
+            return str(win32gui.GetWindowText(hwnd) or "").strip().lower() in ("微信", "wechat")
+        except Exception:
+            return False
+
     def _foreground_wechat():
         """把微信主窗口拉到前面。只在发送失败重试时用 —— 平时不抢你的前台。"""
         try:
@@ -843,7 +854,7 @@ def main():
 
             def cb(hwnd, _):
                 try:
-                    if win32gui.IsWindowVisible(hwnd) and win32gui.GetWindowText(hwnd) == "微信":
+                    if _是微信窗口(hwnd):
                         found.append(hwnd)
                 except Exception:
                     pass
@@ -868,7 +879,7 @@ def main():
 
             def cb(hwnd, _):
                 try:
-                    if win32gui.IsWindowVisible(hwnd) and win32gui.GetWindowText(hwnd) == "微信":
+                    if _是微信窗口(hwnd):
                         found.append(hwnd)
                 except Exception:
                     pass
@@ -938,7 +949,7 @@ def main():
 
             def cb(hwnd, _):
                 try:
-                    if win32gui.IsWindowVisible(hwnd) and win32gui.GetWindowText(hwnd) == "微信":
+                    if _是微信窗口(hwnd):
                         found.append(hwnd)
                 except Exception:
                     pass
@@ -1263,7 +1274,7 @@ def main():
 
                 def cb(hwnd, _):
                     try:
-                        if win32gui.IsWindowVisible(hwnd) and win32gui.GetWindowText(hwnd) == "微信":
+                        if _是微信窗口(hwnd):
                             found.append(hwnd)
                     except Exception:
                         pass
@@ -1690,6 +1701,9 @@ def main():
             if _uia熔断中():
                 return {"ok": False, "说": "UIA 起不来，先不发（5 分钟内不再试，免得它乱点桌面）"}
             窗口快照 = _快照窗口()
+            # 最小化 / 收在托盘时，UIA 的控件坐标是旧的，原生点击会落到别的窗口上。
+            # 这种时候必须先把微信真正还原出来（发完 _还原窗口 会再收回去）。
+            需要前台 = bool(窗口快照.get("iconic")) or not bool(窗口快照.get("visible", True))
             守护 = _守护最小化(窗口快照.get("hwnd")) if 窗口快照.get("iconic") else None
             try:
                 # 先不抢前台：同一条会话里连发时，UIA 直接写控件就够了，
@@ -1713,7 +1727,7 @@ def main():
                         当前会话 = _引擎.current_chat()
                 except Exception:
                     当前会话 = None
-                if 当前会话 != chat:
+                if 当前会话 != chat or 需要前台:
                     # 切会话这一下躲不掉：得让窗口在前，open_chat 才点得到搜索框
                     _ensure_wechat_ready(前台=True)
                     gui = get_gui()

@@ -1,8 +1,14 @@
-# dsh-wechat-bridge 1.3.9 发布说明
+# dsh-wechat-bridge 1.4.0 发布说明
 
-> 本版包含 1.3.8 的功能和 1.3.9 的启动修复。桥接 venv 已补装 `zstandard`。
+> 本版包含 1.3.8 的功能和 1.3.9 / 1.4.0 的启动与发送修复。桥接 venv 已补装 `zstandard`、`winsdk`。
 >
 > 仓库：https://github.com/K2I2Gary/ds-wechatbridge
+
+## 1.4.0 修复
+
+- **发送链路补 `winsdk`**：`open_chat` / 发送的 OCR 兜底需要它；之前跳过导致 `No module named 'winsdk'`。现在装依赖会一起装。
+- **微信窗口标题兼容 `WeChat`**：主窗口标题是英文时也能找到。
+- **最小化 / 收托盘时强制还原**：发送前先还原窗口，发完按原状态收回，避免 UIA 点击落到别的窗口。
 
 ## 1.3.9 修复
 
