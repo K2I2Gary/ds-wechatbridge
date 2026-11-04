@@ -6,6 +6,12 @@
 
 - 2026-11-04：本仓库迁到 [K2I2Gary/ds-wechatbridge](https://github.com/K2I2Gary/ds-wechatbridge)，原 [thawline/dsh-wechat-bridge](https://github.com/thawline/dsh-wechat-bridge) 作为 upstream 保留。功能版本仍为 1.3.8。
 
+## 1.4.1
+
+- **发送不再卡死出站队列**：UIA 查询（`_取引擎` / `_清空输入框` / `current_chat` / `open_chat`）全部加超时；`send_msg` 超时改为按失败返回（以前返回字符串会被当成成功），失败后走 `_keyboard_send`（Ctrl+F 搜索→粘贴→回车）兜底。
+- **发送前统一摆正窗口**：先还原微信、把当前前台窗口（VS Code / DSH）临时最小化，发完再还原；避免 UIA 点击落到编辑器上。
+- 保留 wechatauto 自己的 `ensure_visible` / `bring_to_front`，只关掉「最小化遮挡窗口」，输入框才能拿到焦点。
+
 ## 1.4.0
 
 - **发送链路补 `winsdk`**：`wechatauto` 的 `open_chat` / 发送在走 OCR 兜底时会 import `winsdk`；之前为了避免源码编译把它跳过了，导致 `No module named 'winsdk'`、消息发不出去。现在 `winsdk` 有 cp312 wheel，「装依赖」会一起装，依赖检查也会检查它。

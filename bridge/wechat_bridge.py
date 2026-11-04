@@ -831,6 +831,13 @@ def main():
     def get_gui():
         if gui_box["gui"] is None:
             gui_box["gui"] = WeChatGUI()
+            # 只关掉「最小化遮挡窗口」：否则 wechatauto 会把 VS Code/DSH 收起来又放回来，
+            # 鼠标落点跑到别的窗口上。ensure_visible / bring_to_front 必须保留，
+            # 否则输入框拿不到焦点，发送会卡住。
+            try:
+                gui_box["gui"]._minimize_blockers = lambda *a, **k: 0
+            except Exception:
+                pass
             log("WeChatGUI 已就绪")
         return gui_box["gui"]
 
@@ -941,6 +948,19 @@ def main():
     #       文字走后台（UIA 直接写控件，不需要焦点），失败才抢前台重试；
     #       发完把窗口状态照原样还回去。
 
+    def _窗口在屏幕内(h):
+        """最小化/收托盘时 rect 常在 (-32000,-32000)，宽高也不正常。"""
+        try:
+            import win32gui
+
+            if not h or not win32gui.IsWindow(h):
+                return False
+            r = win32gui.GetWindowRect(h)
+            w, ht = r[2] - r[0], r[3] - r[1]
+            return w > 200 and ht > 200 and r[0] > -10000 and r[1] > -10000
+        except Exception:
+            return False
+
     def _微信窗口():
         try:
             import win32gui
@@ -1005,13 +1025,16 @@ def main():
                 # 别让它突然出现在屏幕上
                 win32gui.ShowWindow(h, 0)          # SW_HIDE
                 return
-            if snap.get("iconic"):
+            if snap.get("iconic") or not _窗口在屏幕内(h):
+                # 原来最小化 / 收在屏幕外：发完收回去，别把窗口留在桌面上
                 win32gui.ShowWindow(h, 6)          # SW_MINIMIZE
                 return
             fg = snap.get("foreground")
             cur = ctypes.windll.user32.GetForegroundWindow()
             if fg and fg != cur and ctypes.windll.user32.IsWindow(fg):
                 try:
+                    if win32gui.IsIconic(fg):
+                        win32gui.ShowWindow(fg, 9)     # 发送时被我们收起来的前台窗口，还原它
                     ctypes.windll.user32.SetForegroundWindow(fg)
                 except Exception:
                     pass
@@ -1283,6 +1306,21 @@ def main():
                 win32gui.EnumWindows(cb, None)
                 if found:
                     h = found[0]
+                    # Windows 前台锁：VS Code / DSH 在前台时 SetForegroundWindow 常常拿不到焦点。
+                    # 先把当前前台窗口收起来，微信才能真正到前面；发完 _还原窗口 会把它恢复。
+                    try:
+                        import ctypes
+
+                        fg = ctypes.windll.user32.GetForegroundWindow()
+                        if fg and fg != h and win32gui.GetClassName(fg) not in (
+                            "Progman", "WorkerW", "Shell_TrayWnd"
+                        ):
+                            log("前台准备：先最小化 %s（%s）" % (
+                                win32gui.GetWindowText(fg) or fg, win32gui.GetClassName(fg)))
+                            win32gui.ShowWindow(fg, 6)     # SW_MINIMIZE
+                            time.sleep(0.15)
+                    except Exception:
+                        pass
                     win32gui.ShowWindow(h, 9)          # SW_RESTORE
                     if not _强设前台(h):
                         # 退路：先最小化再恢复，有时也能把焦点拿回来
@@ -1305,6 +1343,14 @@ def main():
                     except Exception:
                         pass
                     time.sleep(0.4)
+                    try:
+                        import ctypes
+
+                        fg2 = ctypes.windll.user32.GetForegroundWindow()
+                        if fg2 != h:
+                            log("⚠ 微信没拿到前台：fg=%s 目标=%s" % (fg2, h))
+                    except Exception:
+                        pass
                     return True
             except Exception as e:
                 log("微信窗口准备失败：", repr(e))
@@ -1694,6 +1740,25 @@ def main():
             return {"ok": False, "说": "空消息"}
         if not chat:
             return {"ok": False, "说": "没指定发给谁（chat 空着）"}
+
+        def 限时(动作, 秒):
+            """跑一个可能卡住的 UIA 动作；超时返回 None，别把出站队列堵死。"""
+            盒 = {}
+
+            def 跑():
+                try:
+                    盒["r"] = 动作()
+                except Exception as e:
+                    盒["e"] = e
+
+            线 = threading.Thread(target=跑, daemon=True)
+            线.start()
+            线.join(秒)
+            if 线.is_alive():
+                log("⚠ UIA 动作超时：%s" % getattr(动作, "__name__", "?"))
+                return None
+            return 盒.get("r")
+
         with send_lock:
             # UIA 坏着的时候整条发送路都不许走：下面 _ensure_wechat_ready / open_chat /
             # 读输入框都会进 wechatauto 的窗口操作，它一失败就退化成坐标盲点、
@@ -1701,39 +1766,31 @@ def main():
             if _uia熔断中():
                 return {"ok": False, "说": "UIA 起不来，先不发（5 分钟内不再试，免得它乱点桌面）"}
             窗口快照 = _快照窗口()
-            # 最小化 / 收在托盘时，UIA 的控件坐标是旧的，原生点击会落到别的窗口上。
-            # 这种时候必须先把微信真正还原出来（发完 _还原窗口 会再收回去）。
-            需要前台 = bool(窗口快照.get("iconic")) or not bool(窗口快照.get("visible", True))
+            # 发送前统一把微信摆到前台：最小化 / 托盘 / 被 VS Code 挡住时，
+            # UIA 的旧坐标会让点击落到别的窗口，或者让查询直接卡住。
+            # 发完 _还原窗口 会把原前台窗口还回去。
             守护 = _守护最小化(窗口快照.get("hwnd")) if 窗口快照.get("iconic") else None
             try:
-                # 先不抢前台：同一条会话里连发时，UIA 直接写控件就够了，
-                # 把窗口顶上来只会让主人看见它闪。只有要切会话时才摆正窗口。
-                _ensure_wechat_ready(前台=False)
+                _ensure_wechat_ready(前台=True)
                 gui = get_gui()
                 # 每次发送前重取一次引擎：微信跑久了 accessibility 会假死，
                 # 缓存的引擎能收消息却一条也发不出去
-                _引擎 = _取引擎()
+                _引擎 = 限时(_取引擎, 8)
                 # 发之前先清干净输入框：上一次失败的字留在里面，
                 # 这一次回车会把它一起带出去（同一句话发两遍的根源）
                 try:
-                    _清空输入框()
+                    限时(_清空输入框, 6)
                 except Exception:
                     pass
-                # 已经在目标会话里就别再搜一次 —— open_chat 要点搜索框、输入名字，
-                # 这些动作会把最小化的微信拉到前面来（主人就看见窗口突然蹦出来）
-                当前会话 = None
-                try:
-                    if _引擎 is not None:
-                        当前会话 = _引擎.current_chat()
-                except Exception:
-                    当前会话 = None
-                if 当前会话 != chat or 需要前台:
+                当前会话 = 限时(lambda: _引擎.current_chat(), 6) if _引擎 is not None else None
+                # 会话不对、或中途焦点又被抢走时，再摆正一次
+                if 当前会话 != chat or not _微信在前台():
                     # 切会话这一下躲不掉：得让窗口在前，open_chat 才点得到搜索框
                     _ensure_wechat_ready(前台=True)
                     gui = get_gui()
-                    _引擎 = _取引擎()
+                    _引擎 = 限时(_取引擎, 8)
                     try:
-                        gui.open_chat(chat)
+                        限时(lambda: gui.open_chat(chat), 15)
                     except Exception as e:
                         log("打开会话失败（继续试）：", repr(e))
                     # 切会话这一下微信会把自己拉起来（Invoke 会话项时应用自己的行为），
@@ -1742,14 +1799,17 @@ def main():
                     # 窗口最小化时输入框可能丢焦点，这里顺手把焦点还给控件。
                     try:
                         if _引擎 is not None:
-                            e = _引擎._chat_input()
-                            if e is not None:
-                                e.SetFocus()
+                            def _还焦点():
+                                控件 = _引擎._chat_input()
+                                if 控件 is not None:
+                                    控件.SetFocus()
+
+                            限时(_还焦点, 5)
                     except Exception as e:
                         log("还焦点给输入框失败：", repr(e))
                 发了 = False
 
-                def 带超时(动作, 超时=25):
+                def 带超时(动作, 超时=15):
                     """send_msg 偶尔会卡在 UIA 里不出来，给个上限，别把整条队列堵死。"""
                     盒 = {}
 
@@ -1763,7 +1823,9 @@ def main():
                     t.start()
                     t.join(超时)
                     if t.is_alive():
-                        return "发送超时"
+                        # 必须按失败返回（异常），否则 `试` 会把超时字符串当成功，
+                        # 后面的键盘兜底 / 补回车都不会跑。
+                        return TimeoutError("发送超时")
                     return 盒.get("e") or 盒.get("r")
 
                 def 试(动作, 名字, 重试前=1):
@@ -1783,7 +1845,7 @@ def main():
                         # 已经发出去了、只是数据库还没落库 —— 再发一遍就成了两条重复消息
                         if "未确认" in 原因 or "已操作发送" in 原因:
                             # 但字也可能压根没发出去，就卡在输入框里 —— 补一次回车再确认
-                            if _kick_enter():
+                            if 限时(_kick_enter, 8):
                                 time.sleep(1.2)
                                 log("已操作发送但库里没确认，补了一次回车：" + 原因[:50])
                             else:
@@ -1818,7 +1880,7 @@ def main():
                             ok = True
                         if not ok:
                             # 最后再补一脚：字常常只是卡在输入框里没回车出去
-                            if _kick_enter():
+                            if 限时(_kick_enter, 8):
                                 time.sleep(1.2)
                                 if _already_sent(一, chat, within=25):
                                     log("补回车后库里查到了 —— 算发成功：%s" % 一[:30])
@@ -1848,7 +1910,7 @@ def main():
                         if _微信在前台():
                             _press_enter(2)
                             _press_enter(1, ctrl=True)
-                        _kick_enter()
+                        限时(_kick_enter, 8)
                         # 拆开发出去的每一条都记账 —— 不然文件传输助手里会被当成主人说的话读回来
                         recently_sent.append((clean_text(一), time.time()))
                         _记发过(一)

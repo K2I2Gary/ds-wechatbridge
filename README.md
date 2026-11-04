@@ -229,7 +229,7 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 - 微信升级可能让它失效：`wechatauto` 靠一张按版本号硬编码的地址表找控件树。升级后发不出去先看设置页下面的日志。
 - **长文本 / 卡片 / 动图显示成 `[文本]`**：微信 4.x 把这些内容存成 zstd 帧，桥接环境缺 `zstandard` 时就会退化。点「装依赖」会一起装；手动补：`"<venv>\Scripts\python.exe" -m pip install zstandard`，装完重启桥接。
 - **发消息报 `No module named 'winsdk'`**：`open_chat` / 发送的 OCR 兜底需要 `winsdk`。点「装依赖」会装；手动补：`"<venv>\Scripts\python.exe" -m pip install winsdk`，装完重启桥接。
-- **微信窗口最小化 / 收托盘后点击落到别的窗口**：桥接会先按 `微信` / `WeChat` 两种标题找主窗口，最小化时先还原再发，发完按原状态收回。
+- **微信窗口最小化 / 收托盘 / 被编辑器挡住后点击落到别的窗口**：桥接会先按 `微信` / `WeChat` 两种标题找主窗口，把当前前台窗口临时最小化、还原微信再发，发完再把前台窗口还回去。
 - 只在 Windows 上能用（UI Automation 是 Windows 独有的）。
 
 ## 相对原版的改动

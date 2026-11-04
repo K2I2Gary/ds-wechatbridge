@@ -1,8 +1,13 @@
-# dsh-wechat-bridge 1.4.0 发布说明
+# dsh-wechat-bridge 1.4.1 发布说明
 
-> 本版包含 1.3.8 的功能和 1.3.9 / 1.4.0 的启动与发送修复。桥接 venv 已补装 `zstandard`、`winsdk`。
+> 本版包含 1.3.8 的功能和 1.3.9–1.4.1 的启动与发送修复。桥接 venv 已补装 `zstandard`、`winsdk`。
 >
 > 仓库：https://github.com/K2I2Gary/ds-wechatbridge
+
+## 1.4.1 修复
+
+- **出站队列卡死**：UIA 查询全部加超时；`send_msg` 超时按失败处理并走键盘兜底（Ctrl+F 搜索→粘贴→回车）。
+- **前台焦点**：发送前把当前前台窗口（VS Code / DSH）临时最小化、还原微信，发完再还原；只关掉 wechatauto 的「最小化遮挡窗口」，保留它的输入框聚焦逻辑。
 
 ## 1.4.0 修复
 
