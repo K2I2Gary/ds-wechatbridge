@@ -95,6 +95,17 @@ globalThis.fetch = async (url, opt) => {
       }),
     }
   }
+  if (String(url).endsWith('/memory')) {
+    return {
+      json: async () => ({
+        ok: true,
+        消息: 12,
+        笔记: 2,
+        联网: 3,
+        聊天: [{ chat: '群A', n: 5 }],
+      }),
+    }
+  }
   if (String(url).endsWith('/state')) {
     拉了几次 += 1
     return { json: async () => 服务器 }
@@ -354,6 +365,28 @@ await 等()
 const 提示 = 都(树).map((n) => 绳(n)).join(' ')
 断言('半截行被拦住了（提示要补聊天名）', /缺聊天名|补上再存/.test(提示), 提示.slice(-300))
 断言('半截行没发出去', (发出去.体.绑定 || []).length === 1, 发出去.体.绑定)
+
+// 11 本地记忆：统计显示 + 按聊天清除
+const 文字2 = 都(树).map((n) => 绳(n)).join(' | ')
+断言('显示本地记忆统计', /本地记忆库：12 条微信消息/.test(文字2), 文字2.slice(-500))
+const 记下拉 = 都(树).find((n) => n.type === 'select' && n.props['data-wx-memchat'])
+断言('记忆聊天下拉在', !!记下拉, 都(树).filter((n) => n.type === 'select').map((n) => n.props.value))
+记下拉.props.onChange({ target: { value: '群A' } })
+树 = 重画()
+const 清聊 = 都(树).find((n) => n.type === 'button' && n.props['data-wx-memclear'] === 'chat')
+断言('清除聊天记忆按钮在', !!清聊, 都(树).filter((n) => n.type === 'button').map(绳))
+清聊.props.onClick()
+await 等()
+await 等()
+树 = 重画()
+断言(
+  '清除聊天记忆请求发出了',
+  !!发出去 &&
+    String(发出去.url).endsWith('/memory/clear') &&
+    发出去.体.范围 === 'chat' &&
+    发出去.体.聊天 === '群A',
+  发出去,
+)
 
 console.log('\n渲染出来的按钮：', 都(树).filter((n) => n.type === 'button').map(绳).join(' / '))
 // 设置页里有 4 秒一次的轮询，不手动退 node 会一直挂着

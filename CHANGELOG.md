@@ -6,6 +6,13 @@
 
 - 2026-11-04：本仓库迁到 [K2I2Gary/ds-wechatbridge](https://github.com/K2I2Gary/ds-wechatbridge)，原 [thawline/dsh-wechat-bridge](https://github.com/thawline/dsh-wechat-bridge) 作为 upstream 保留。功能版本仍为 1.3.8。
 
+## 1.9.7
+
+- **本地记忆管理**：「群聊与记忆」里新增「清除上下文记忆」——显示本地库的微信消息 / 笔记 / 联网摘要条数，可以**按聊天清除**，也可以**清空全部**。
+- 清除只动本地记忆库（`wechat-bridge-memory.db`），不碰微信自己的数据库；清完 RAG 和 `local_search` 从空开始，下一条新消息会重新入库。
+- 桥接新增 CLI：`--memory-stats`、`--memory-clear all|chat|notes|web`、`--memory-chat`、`--memory-db`；宿主的 `/memory`、`/memory/clear` 路由通过它统计 / 清除。
+- 自测新增：本地记忆统计显示、按聊天清除请求。
+
 ## 1.9.6
 
 - **设置页重排**：原来混在一起的 8 个区块合并成 6 个模块——连接与启动、接收与绑定、人格与说话、群聊与记忆、联网搜索（独立）、测试与日志。

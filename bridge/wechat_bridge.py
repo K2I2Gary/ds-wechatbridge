@@ -154,6 +154,200 @@ def _活跃群列表():
         return []
 
 
+# ---------- 本地记忆库（RAG / 笔记 / 联网摘要）----------
+# 表结构由桥接写消息时建；清理/统计的 CLI 也复用同一份，避免两边写歪。
+_本地库建表SQL = """
+CREATE TABLE IF NOT EXISTS messages(
+  id INTEGER PRIMARY KEY, key TEXT UNIQUE, chat TEXT, chat_id TEXT,
+  sender TEXT, ts REAL, text TEXT, tokens TEXT
+);
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+  tokens, chat, sender, content='messages', content_rowid='id'
+);
+CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
+  INSERT INTO messages_fts(rowid, tokens, chat, sender)
+  VALUES(new.id, new.tokens, new.chat, new.sender);
+END;
+CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
+  INSERT INTO messages_fts(messages_fts, rowid, tokens, chat, sender)
+  VALUES('delete', old.id, old.tokens, old.chat, old.sender);
+END;
+CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
+  INSERT INTO messages_fts(messages_fts, rowid, tokens, chat, sender)
+  VALUES('delete', old.id, old.tokens, old.chat, old.sender);
+  INSERT INTO messages_fts(rowid, tokens, chat, sender)
+  VALUES(new.id, new.tokens, new.chat, new.sender);
+END;
+CREATE TABLE IF NOT EXISTS notes(
+  id INTEGER PRIMARY KEY, key TEXT UNIQUE, path TEXT, title TEXT,
+  text TEXT, tokens TEXT, mtime REAL
+);
+CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
+  tokens, title, path, content='notes', content_rowid='id'
+);
+CREATE TRIGGER IF NOT EXISTS notes_ai AFTER INSERT ON notes BEGIN
+  INSERT INTO notes_fts(rowid, tokens, title, path)
+  VALUES(new.id, new.tokens, new.title, new.path);
+END;
+CREATE TRIGGER IF NOT EXISTS notes_ad AFTER DELETE ON notes BEGIN
+  INSERT INTO notes_fts(notes_fts, rowid, tokens, title, path)
+  VALUES('delete', old.id, old.tokens, old.title, old.path);
+END;
+CREATE TRIGGER IF NOT EXISTS notes_au AFTER UPDATE ON notes BEGIN
+  INSERT INTO notes_fts(notes_fts, rowid, tokens, title, path)
+  VALUES('delete', old.id, old.tokens, old.title, old.path);
+  INSERT INTO notes_fts(rowid, tokens, title, path)
+  VALUES(new.id, new.tokens, new.title, new.path);
+END;
+CREATE TABLE IF NOT EXISTS web_info(
+  id INTEGER PRIMARY KEY, key TEXT UNIQUE, query TEXT, title TEXT, url TEXT,
+  text TEXT, tokens TEXT, keywords TEXT, ts REAL, source TEXT
+);
+CREATE VIRTUAL TABLE IF NOT EXISTS web_info_fts USING fts5(
+  tokens, title, url, text, content='web_info', content_rowid='id'
+);
+CREATE TRIGGER IF NOT EXISTS web_info_ai AFTER INSERT ON web_info BEGIN
+  INSERT INTO web_info_fts(rowid, tokens, title, url, text)
+  VALUES(new.id, new.tokens, new.title, new.url, new.text);
+END;
+CREATE TRIGGER IF NOT EXISTS web_info_ad AFTER DELETE ON web_info BEGIN
+  INSERT INTO web_info_fts(web_info_fts, rowid, tokens, title, url, text)
+  VALUES('delete', old.id, old.tokens, old.title, old.url, old.text);
+END;
+CREATE TRIGGER IF NOT EXISTS web_info_au AFTER UPDATE ON web_info BEGIN
+  INSERT INTO web_info_fts(web_info_fts, rowid, tokens, title, url, text)
+  VALUES('delete', old.id, old.tokens, old.title, old.url, old.text);
+  INSERT INTO web_info_fts(rowid, tokens, title, url, text)
+  VALUES(new.id, new.tokens, new.title, new.url, new.text);
+END;
+CREATE TABLE IF NOT EXISTS search_groups(
+  id INTEGER PRIMARY KEY, query TEXT, ts REAL, results TEXT, keywords TEXT
+);
+CREATE TABLE IF NOT EXISTS search_keywords(
+  group_id INTEGER, keyword TEXT, weight REAL DEFAULT 1.0, count INTEGER DEFAULT 1,
+  PRIMARY KEY(group_id, keyword)
+);
+"""
+
+
+def _内存库路径(指定=""):
+    """记忆库路径：优先用显式传入的，其次配置里的「本地库文件」，最后默认位置。"""
+    if 指定:
+        return str(指定)
+    home = os.environ.get("DSH_HOME") or os.path.join(os.path.expanduser("~"), ".dsh")
+    p = os.path.join(home, "wechat-bridge-memory.db")
+    try:
+        with open(os.path.join(home, "wechat-bridge-config.json"), encoding="utf-8-sig") as f:
+            c = json.load(f)
+        p = str(c.get("本地库文件") or "").strip() or p
+    except Exception:
+        pass
+    return p
+
+
+def _记忆库连接(path):
+    con = sqlite3.connect(path, timeout=10)
+    con.row_factory = sqlite3.Row
+    try:
+        con.execute("PRAGMA journal_mode=WAL")
+        con.execute("PRAGMA busy_timeout=5000")
+    except Exception:
+        pass
+    con.executescript(_本地库建表SQL)
+    return con
+
+
+def memory_stats(db=""):
+    """本地记忆库统计：消息 / 笔记 / 联网条数 + 每个聊天的消息数。"""
+    path = _内存库路径(db)
+    out = {"ok": True, "数据库": path, "消息": 0, "笔记": 0, "联网": 0, "聊天": []}
+    if not os.path.exists(path):
+        out["说"] = "本地库还没建，没东西可清"
+        return out
+    try:
+        con = _记忆库连接(path)
+        try:
+            for k, t in (("消息", "messages"), ("笔记", "notes"), ("联网", "web_info")):
+                try:
+                    out[k] = int(con.execute("SELECT COUNT(*) FROM %s" % t).fetchone()[0])
+                except Exception:
+                    pass
+            try:
+                out["聊天"] = [
+                    {"chat": str(r["chat"] or ""), "n": int(r["n"] or 0)}
+                    for r in con.execute(
+                        "SELECT chat, COUNT(*) AS n FROM messages "
+                        "WHERE chat IS NOT NULL AND chat <> '' "
+                        "GROUP BY chat ORDER BY n DESC"
+                    ).fetchall()
+                ]
+            except Exception:
+                pass
+        finally:
+            con.close()
+    except Exception as e:
+        out = {"ok": False, "说": "读本地库失败：%r" % (e,), "数据库": path}
+    return out
+
+
+def memory_clear(db="", chat="", what="all"):
+    """清本地记忆。what: all / chat / notes / web（聊天名可配合 chat 使用）。"""
+    path = _内存库路径(db)
+    chat = str(chat or "").strip()
+    what = str(what or "").strip().lower()
+    if not what:
+        what = "chat" if chat else "all"
+    if what in ("聊天", "聊天记忆"):
+        what = "chat"
+    elif what in ("全部", "所有"):
+        what = "all"
+    elif what in ("笔记",):
+        what = "notes"
+    elif what in ("联网", "搜索"):
+        what = "web"
+    if not os.path.exists(path):
+        return {"ok": True, "说": "本地库还没建，没东西可清", "已删": {}}
+    try:
+        con = _记忆库连接(path)
+        删 = {}
+        try:
+            if what == "chat":
+                if not chat:
+                    return {"ok": False, "说": "要清某个聊天的话，得先给聊天名"}
+                前 = con.execute("SELECT COUNT(*) FROM messages WHERE chat=?", (chat,)).fetchone()[0]
+                con.execute("DELETE FROM messages WHERE chat=? OR chat_id=?", (chat, chat))
+                con.commit()
+                删["消息"] = int(前)
+                return {"ok": True, "说": "已清除「%s」的本地记忆：%d 条消息" % (chat, 前), "已删": 删}
+            if what in ("all", "notes"):
+                前 = con.execute("SELECT COUNT(*) FROM notes").fetchone()[0]
+                con.execute("DELETE FROM notes")
+                删["笔记"] = int(前)
+            if what in ("all", "web"):
+                try:
+                    前 = con.execute("SELECT COUNT(*) FROM web_info").fetchone()[0]
+                    con.execute("DELETE FROM web_info")
+                    删["联网"] = int(前)
+                except Exception:
+                    pass
+                for t in ("search_keywords", "search_groups"):
+                    try:
+                        con.execute("DELETE FROM %s" % t)
+                    except Exception:
+                        pass
+            if what == "all":
+                前 = con.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+                con.execute("DELETE FROM messages")
+                删["消息"] = int(前)
+            con.commit()
+            说 = "、".join("%s %d" % (k, v) for k, v in 删.items()) or "没有可清的内容"
+            return {"ok": True, "说": "已清除：" + 说, "已删": 删}
+        finally:
+            con.close()
+    except Exception as e:
+        return {"ok": False, "说": "清本地库失败：%r" % (e,), "数据库": path}
+
+
 # ---------- 微信界面语言：中文版 / 英文版 ----------
 # wechatauto 把搜索框和会话页签的 UIA 名字写死成中文；英文版微信是
 # “Search”/“WeChat”。默认「自动」按类名兜底（与语言包无关），也可以在
@@ -304,6 +498,11 @@ def parse_args():
     p.add_argument("--skip-older", type=float, default=15.0)
     p.add_argument("--poll", type=float, default=0.5)
     p.add_argument("--test-image", default="", help="只看一张本地图片然后退出（调视图用）")
+    # 本地记忆维护：统计 / 清除后直接退出，不启动桥接
+    p.add_argument("--memory-stats", action="store_true", help="打印本地记忆库统计（JSON）后退出")
+    p.add_argument("--memory-clear", default="", help="清本地记忆后退出：all / chat / notes / web")
+    p.add_argument("--memory-chat", default="", help="配合 --memory-clear chat：只清这个聊天")
+    p.add_argument("--memory-db", default="", help="本地记忆库路径（默认从配置/DSH_HOME 找）")
     a = p.parse_args()
 
     DSH = str(a.dsh).rstrip("/")
@@ -526,6 +725,19 @@ def http_json(path, payload=None, method=None, timeout=20):
 def main():
     global HOST_VERSION, ARGS
     ARGS = parse_args()
+
+    # 记忆维护命令：只读写本地库，打印 JSON 后退出，不导入 wechatauto。
+    if ARGS.memory_stats or ARGS.memory_clear:
+        try:
+            if ARGS.memory_stats:
+                结果 = memory_stats(ARGS.memory_db)
+            else:
+                结果 = memory_clear(ARGS.memory_db, ARGS.memory_chat, ARGS.memory_clear)
+        except Exception as e:
+            结果 = {"ok": False, "说": "记忆维护失败：%r" % (e,)}
+        print(json.dumps(结果, ensure_ascii=False))
+        return 0
+
     log("DSH 地址：", DSH, "｜只收不发：", not SEND_ENABLED)
     if _ZSTD is None:
         log("⚠ 缺 zstandard：长文本 / 卡片 / 动图会被截成 [文本]；去设置页点「装依赖」")
@@ -813,78 +1025,7 @@ def main():
         return p or os.path.join(DSH_HOME, "wechat-bridge-notes")
 
     def _本地库建表(con):
-        con.executescript("""
-        CREATE TABLE IF NOT EXISTS messages(
-          id INTEGER PRIMARY KEY, key TEXT UNIQUE, chat TEXT, chat_id TEXT,
-          sender TEXT, ts REAL, text TEXT, tokens TEXT
-        );
-        CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
-          tokens, chat, sender, content='messages', content_rowid='id'
-        );
-        CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
-          INSERT INTO messages_fts(rowid, tokens, chat, sender)
-          VALUES(new.id, new.tokens, new.chat, new.sender);
-        END;
-        CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
-          INSERT INTO messages_fts(messages_fts, rowid, tokens, chat, sender)
-          VALUES('delete', old.id, old.tokens, old.chat, old.sender);
-        END;
-        CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
-          INSERT INTO messages_fts(messages_fts, rowid, tokens, chat, sender)
-          VALUES('delete', old.id, old.tokens, old.chat, old.sender);
-          INSERT INTO messages_fts(rowid, tokens, chat, sender)
-          VALUES(new.id, new.tokens, new.chat, new.sender);
-        END;
-        CREATE TABLE IF NOT EXISTS notes(
-          id INTEGER PRIMARY KEY, key TEXT UNIQUE, path TEXT, title TEXT,
-          text TEXT, tokens TEXT, mtime REAL
-        );
-        CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
-          tokens, title, path, content='notes', content_rowid='id'
-        );
-        CREATE TRIGGER IF NOT EXISTS notes_ai AFTER INSERT ON notes BEGIN
-          INSERT INTO notes_fts(rowid, tokens, title, path)
-          VALUES(new.id, new.tokens, new.title, new.path);
-        END;
-        CREATE TRIGGER IF NOT EXISTS notes_ad AFTER DELETE ON notes BEGIN
-          INSERT INTO notes_fts(notes_fts, rowid, tokens, title, path)
-          VALUES('delete', old.id, old.tokens, old.title, old.path);
-        END;
-        CREATE TRIGGER IF NOT EXISTS notes_au AFTER UPDATE ON notes BEGIN
-          INSERT INTO notes_fts(notes_fts, rowid, tokens, title, path)
-          VALUES('delete', old.id, old.tokens, old.title, old.path);
-          INSERT INTO notes_fts(rowid, tokens, title, path)
-          VALUES(new.id, new.tokens, new.title, new.path);
-        END;
-        CREATE TABLE IF NOT EXISTS web_info(
-          id INTEGER PRIMARY KEY, key TEXT UNIQUE, query TEXT, title TEXT, url TEXT,
-          text TEXT, tokens TEXT, keywords TEXT, ts REAL, source TEXT
-        );
-        CREATE VIRTUAL TABLE IF NOT EXISTS web_info_fts USING fts5(
-          tokens, title, url, text, content='web_info', content_rowid='id'
-        );
-        CREATE TRIGGER IF NOT EXISTS web_info_ai AFTER INSERT ON web_info BEGIN
-          INSERT INTO web_info_fts(rowid, tokens, title, url, text)
-          VALUES(new.id, new.tokens, new.title, new.url, new.text);
-        END;
-        CREATE TRIGGER IF NOT EXISTS web_info_ad AFTER DELETE ON web_info BEGIN
-          INSERT INTO web_info_fts(web_info_fts, rowid, tokens, title, url, text)
-          VALUES('delete', old.id, old.tokens, old.title, old.url, old.text);
-        END;
-        CREATE TRIGGER IF NOT EXISTS web_info_au AFTER UPDATE ON web_info BEGIN
-          INSERT INTO web_info_fts(web_info_fts, rowid, tokens, title, url, text)
-          VALUES('delete', old.id, old.tokens, old.title, old.url, old.text);
-          INSERT INTO web_info_fts(rowid, tokens, title, url, text)
-          VALUES(new.id, new.tokens, new.title, new.url, new.text);
-        END;
-        CREATE TABLE IF NOT EXISTS search_groups(
-          id INTEGER PRIMARY KEY, query TEXT, ts REAL, results TEXT, keywords TEXT
-        );
-        CREATE TABLE IF NOT EXISTS search_keywords(
-          group_id INTEGER, keyword TEXT, weight REAL DEFAULT 1.0, count INTEGER DEFAULT 1,
-          PRIMARY KEY(group_id, keyword)
-        );
-        """)
+        con.executescript(_本地库建表SQL)
 
     def _本地库连接():
         con = sqlite3.connect(_本地库路径(), timeout=10)

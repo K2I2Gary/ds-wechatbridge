@@ -277,6 +277,12 @@ const 概3 = await 屏.概况()
   概3.最近聊天,
 )
 
+// 13.9 本地记忆：统计 / 清除路由（没建 venv 时也要优雅返回）
+const 记统 = await 调('/dsh-wechat-bridge/memory', {})
+断言('记忆统计路由存在', 记统 && (记统.ok === true || typeof 记统.说 === 'string'), 记统)
+const 记清 = await 调('/dsh-wechat-bridge/memory/clear', { 范围: 'all' })
+断言('记忆清除路由存在', 记清 && (记清.ok === true || typeof 记清.说 === 'string'), 记清)
+
 // 14 RAG 配置能存能读、越界会被夹住
 await 调('/dsh-wechat-bridge/save', { RAG: false, RAG条数: 0, RAG天数: 7 })
 const 配R = 读配置()
