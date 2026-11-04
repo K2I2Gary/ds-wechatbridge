@@ -20,6 +20,7 @@ import base64
 import hashlib
 import html
 import json
+import math
 import os
 import random
 import re
@@ -31,6 +32,31 @@ import time
 import traceback
 import urllib.error
 import urllib.request
+
+# 微信 4.x 的长文本 / 卡片 / 动图在 message_content 里是 zstd 帧。
+# wechatauto 没装 zstandard 时会退化成 [文本] / [动画表情] 占位符，所以这里自己留一份。
+try:
+    import zstandard as _ZSTD
+except Exception:
+    try:
+        import zstd as _ZSTD
+    except Exception:
+        _ZSTD = None
+
+
+def _zstd解压(raw):
+    """解一个 zstd 帧；没装 zstandard / 解不开都返回 None。"""
+    if not raw or _ZSTD is None:
+        return None
+    try:
+        if hasattr(_ZSTD, "ZstdDecompressor"):
+            return _ZSTD.ZstdDecompressor().decompress(raw, max_output_size=2000000)
+        if hasattr(_ZSTD, "decompress"):
+            return _ZSTD.decompress(raw)
+    except Exception:
+        return None
+    return None
+
 
 # 有些嵌入式 Python 探测不到可写的临时目录（C 盘 TEMP 被安全软件拦住时会这样），
 # 这里兜底指到桥目录下自己的 tmp/，否则 tempfile.gettempdir() 会直接抛 FileNotFoundError。
@@ -81,8 +107,25 @@ CFG = {
     "日记目录": "",
     "主人": [],
     "屏蔽": [],
+    "只听": [],
+    # 历史记忆（RAG）：在当前会话里找和这句话相关的旧消息
+    "RAG": True,
+    "RAG条数": 5,
+    "RAG天数": 30,
 }
 CFG_TS = 0.0
+# 配置有没有成功从宿主拉到过：拉到之前先用启动参数 --only 兜底，
+# 免得桥刚起来那几秒把名单外的会话也收进来。拉到之后以 CFG["只听"] 为准（空 = 全部）。
+CFG_READY = False
+_LAST_ONLY = None
+
+
+def 会话被选中(chat, cid, 名单):
+    """会话筛选：名单空着 = 全都听；否则显示名或底层 id（wxid / xxx@chatroom）命中才算。"""
+    names = [str(x).strip() for x in (名单 or []) if str(x).strip()]
+    if not names:
+        return True
+    return (bool(chat) and str(chat) in names) or (bool(cid) and str(cid) in names)
 
 # 微信里收到的图片 / 表情包落盘到这里，再把路径交给宿主去看图
 INBOUND_DIR = os.path.join(
@@ -108,7 +151,7 @@ def _活跃群列表():
 
 def refresh_config():
     """问宿主要一次配置。设置页改完不用重启桥接。"""
-    global CFG, CFG_TS
+    global CFG, CFG_TS, CFG_READY, _LAST_ONLY
     r = http_json("/dsh-wechat-bridge/state")
     c = (r or {}).get("配置") if isinstance(r, dict) else None
     if not isinstance(c, dict):
@@ -120,11 +163,19 @@ def refresh_config():
             "日记目录": str(c.get("日记目录") or "").strip(),
             "主人": [str(x).strip() for x in (c.get("主人") or []) if str(x).strip()],
             "屏蔽": [str(x).strip() for x in (c.get("屏蔽") or []) if str(x).strip()],
+            "只听": [str(x).strip() for x in (c.get("只听") or []) if str(x).strip()],
+            "RAG": bool(c.get("RAG", True)),
+            "RAG条数": max(0, min(20, _数(c.get("RAG条数", 5), 5))),
+            "RAG天数": max(1, min(365, _数(c.get("RAG天数", 30), 30))),
             "群回复间隔秒": max(0.0, float(c.get("群回复间隔秒") or 0)),
             "群每小时上限": max(0.0, float(c.get("群每小时上限") or 0)),
         }
         CFG["活跃群"] = _活跃群列表()
         CFG_TS = time.time()
+        CFG_READY = True
+        if CFG["只听"] != _LAST_ONLY:
+            _LAST_ONLY = list(CFG["只听"])
+            log("只听会话：", "、".join(_LAST_ONLY) if _LAST_ONLY else "全部（不过滤）")
         return True
     except Exception as e:
         log("解析配置失败：", repr(e))
@@ -137,7 +188,11 @@ def parse_args():
     p = argparse.ArgumentParser(description="DSH WeChat bridge")
     p.add_argument("--dsh", default=os.environ.get("DSH_ORIGIN", "http://127.0.0.1:3080"))
     p.add_argument("--token", default=os.environ.get("DSH_BRIDGE_TOKEN", ""))
-    p.add_argument("--only", default="", help="只转这些聊天，逗号分隔（留空 = 全部）")
+    p.add_argument(
+        "--only",
+        default="",
+        help="启动时只听这些聊天，逗号分隔（留空 = 全部；设置页的「只听」拉到后会覆盖它）",
+    )
     p.add_argument("--aliases", default=DEFAULT_ALIASES, help="群里叫这些名字才算在跟我说话")
     p.add_argument("--no-send", action="store_true", help="只收不发")
     p.add_argument("--skip-older", type=float, default=15.0)
@@ -155,20 +210,195 @@ def parse_args():
     return a
 
 
-# @ 某人时微信会把机器 id 塞进正文，看着像乱码 —— 洗掉
-_MENTION_ID = re.compile(r"wxid_[0-9a-zA-Z_-]+[:：]?")
-_AT_TAG = re.compile(r"@[^\s@]{1,24}\s?")
+# 群消息正文可能带「wxid_xxx:」的发送者前缀；@ 某人时正文里是 @昵称。
+# 以前把 @ 整段抹掉，模型就看不到「在叫谁」了 —— 现在保留成 @显示名。
+_SENDER_PREFIX = re.compile(r"^\s*wxid_[0-9a-zA-Z_-]+\s*[:：]\s*")
+_WXID_TOKEN = re.compile(r"wxid_[0-9a-zA-Z_-]+")
+_AT_ALL = "所有人"
+# wechatauto 解不开 zstd 时吐出的类型占位符。
+# 只认这些固定类型 —— 别把用户真的发一句「[笑]」「[OK]」也当成占位符吞掉。
+_占位符 = re.compile(
+    r"^\[(文本|图片|语音|视频|动画表情|文件/链接/卡片|位置|系统消息|音视频通话|红包)\]$"
+)
+
+
+def _规整空白(t):
+    t = str(t or "").replace("\u2005", " ").replace("\u200b", "").replace("\ufeff", "")
+    return " ".join(t.split()).strip()
 
 
 def clean_text(text):
-    t = _MENTION_ID.sub("", text or "")
-    t = _AT_TAG.sub("", t)
-    return " ".join(t.split()).strip()
+    t = _SENDER_PREFIX.sub("", str(text or ""))
+    t = _WXID_TOKEN.sub("", t)
+    return _规整空白(t)
+
+
+def _数(v, 默认):
+    try:
+        return int(float(v))
+    except Exception:
+        return 默认
+
+
+def 解析提及(raw, 成员们=None, 我的id="", 别名=()):
+    """把群消息里的 @ 解析成「谁被 @ 了」。
+
+    微信 4.x 的群文本里，@ 的写法有两种：
+      - 英文/数字昵称：``@kiki\\u2005正文``（U+2005 是终止符）
+      - 中文昵称：``@张三正文``（直接连着正文，没有分隔符）
+    所以优先拿群成员名做「最长匹配」，匹配不上再按 U+2005 / 空白 / 标点截断。
+
+    返回 ``(文本, 提及列表, 是否点了我)``。文本里的 @ 会保留成 ``@显示名``。
+    """
+    raw = _SENDER_PREFIX.sub("", str(raw or ""))
+    名到人 = []
+    for m in 成员们 or []:
+        name = str((m or {}).get("name") or (m or {}).get("nick_name") or (m or {}).get("remark") or "").strip()
+        uid = str((m or {}).get("username") or (m or {}).get("id") or "").strip()
+        if name:
+            名到人.append((name, uid))
+    for a in 别名 or []:
+        a = str(a).strip()
+        if a:
+            名到人.append((a, a))
+    # 长名字优先，避免「张三」把「张三丰」吃掉
+    名到人.sort(key=lambda x: len(x[0]), reverse=True)
+
+    提及 = []
+    出 = []
+    i = 0
+    n = len(raw)
+    while i < n:
+        if raw[i] != "@":
+            出.append(raw[i])
+            i += 1
+            continue
+        if raw.startswith("@" + _AT_ALL, i):
+            提及.append({"name": _AT_ALL, "id": "", "is_me": True})
+            出.append("@" + _AT_ALL)
+            i += 1 + len(_AT_ALL)
+            continue
+        j = raw.find(" ", i + 1, min(n, i + 42))
+        选了 = None
+        if j > i + 1:
+            名 = raw[i + 1:j].strip()
+            for name, uid in 名到人:
+                if name == 名:
+                    # 保留 U+2005 让后面的空白规整把它变成空格（不然 @kiki你看下 会粘在一起）
+                    选了 = (name, uid, j)
+                    break
+        if 选了 is None:
+            for name, uid in 名到人:
+                if raw.startswith(name, i + 1):
+                    选了 = (name, uid, i + 1 + len(name))
+                    break
+        if 选了 is None:
+            # 没有成员表可对：退到「@ 后面到空白/标点」为止，最多 24 个字
+            m = re.match(r"@([^\s@,，。！？!?；;：:]{1,24})", raw[i:])
+            if not m:
+                出.append(raw[i])
+                i += 1
+                continue
+            名 = m.group(1)
+            选了 = (名, "", i + len(m.group(0)))
+        name, uid, 到 = 选了
+        提及.append({
+            "name": name,
+            "id": uid,
+            "is_me": bool(我的id and uid == 我的id) or name in (别名 or ()),
+        })
+        出.append("@" + name)
+        i = 到
+    txt = _规整空白("".join(出))
+    # 别名直接写在正文里（没带 @）也算在叫我们
+    at_me = any(x["is_me"] for x in 提及) or any(a and a in raw for a in (别名 or ()))
+    return txt, 提及, at_me
+
+
+# ---------- 本地检索（RAG）：词面 + 时间衰减，不用向量库 ----------
+
+_停用词 = {
+    "的", "了", "是", "在", "我", "你", "他", "她", "它", "们", "这", "那", "个",
+    "我们", "你们", "他们", "这个", "那个", "一个", "没有", "就是", "还是",
+    "什么", "怎么", "为什么", "可以", "但是", "因为", "所以", "然后", "现在",
+    "今天", "昨天", "明天", "一下", "不是", "自己", "知道", "觉得", "时候",
+    "the", "and", "for", "you", "are", "was", "with", "this", "that", "have",
+}
+
+
+def 分词(s):
+    """中文按二元词切，英文/数字按词切 —— 够本地检索用，不需要分词库。"""
+    s = str(s or "").lower()
+    out = []
+    for run in re.findall(r"[\u4e00-\u9fff]+|[a-z0-9_]+", s):
+        if re.match(r"[a-z0-9_]", run):
+            if len(run) >= 2 and run not in _停用词:
+                out.append(run)
+            continue
+        if len(run) == 1:
+            if run not in _停用词:
+                out.append(run)
+            continue
+        for i in range(len(run) - 1):
+            bg = run[i:i + 2]
+            if bg not in _停用词:
+                out.append(bg)
+    return out
+
+
+def 检索消息(查询, 候选, 条数=5, 排除最近=0):
+    """在候选消息里找和「查询」最相关的几条。
+
+    候选：``[{"text", "who", "ts", ...}]``（顺序不限）。
+    打分：中文二元词 / 英文词的 IDF 加权重叠 + 原句命中加成 + 时间衰减。
+    """
+    q = set(分词(查询))
+    条数 = int(条数 or 0)
+    if not q or 条数 <= 0 or not 候选:
+        return []
+    列 = list(候选)
+    if 排除最近 > 0:
+        列 = 列[int(排除最近):]
+    if not 列:
+        return []
+
+    docs = []
+    df = {}
+    for c in 列:
+        toks = set(分词(c.get("text") or ""))
+        docs.append((c, toks))
+        for t in q & toks:
+            df[t] = df.get(t, 0) + 1
+    if not df:
+        return []
+
+    N = len(docs)
+    现在 = time.time()
+    打分 = []
+    for c, toks in docs:
+        叠 = q & toks
+        if not 叠:
+            continue
+        # 查询越长，要求命中的词越多，免得「今天」这种词捞回一堆无关消息
+        需要 = 2 if len(q) >= 4 else 1
+        原文 = str(c.get("text") or "")
+        if len(叠) < 需要 and str(查询).strip() not in 原文:
+            continue
+        idf = sum(math.log((N + 1) / (df.get(t, 0) + 1)) + 1 for t in 叠)
+        score = idf / ((len(toks) ** 0.5) or 1)
+        if str(查询).strip() and str(查询).strip() in 原文:
+            score += 2.0
+        age = max(0.0, 现在 - float(c.get("ts") or 0))
+        score += 0.35 * math.exp(-age / (14 * 86400))
+        打分.append((score, c))
+
+    打分.sort(key=lambda x: x[0], reverse=True)
+    return [dict(c, score=round(s, 3)) for s, c in 打分[:条数]]
 
 
 # ---------- HTTP ----------
 
-def http_json(path, payload=None, method=None):
+def http_json(path, payload=None, method=None, timeout=20):
     url = DSH + path
     data = None
     headers = {"content-type": "application/json"}
@@ -179,7 +409,7 @@ def http_json(path, payload=None, method=None):
         method = method or "POST"
     req = urllib.request.Request(url, data=data, headers=headers, method=method or "GET")
     try:
-        with urllib.request.urlopen(req, timeout=20) as r:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read().decode("utf-8") or "{}")
     except urllib.error.HTTPError as e:
         return {"ok": False, "说": "HTTP %s" % e.code}
@@ -191,6 +421,10 @@ def main():
     global HOST_VERSION, ARGS
     ARGS = parse_args()
     log("DSH 地址：", DSH, "｜只收不发：", not SEND_ENABLED)
+    if _ZSTD is None:
+        log("⚠ 缺 zstandard：长文本 / 卡片 / 动图会被截成 [文本]；去设置页点「装依赖」")
+    else:
+        log("zstandard 就绪：长文本 / 卡片 / 动图可以解压")
 
     log("import wechatauto …（第一次会慢）")
     try:
@@ -344,6 +578,114 @@ def main():
         if not lines:
             return ""
         return "（「%s」刚才在聊：\n%s\n）\n" % (chat, "\n".join(lines))
+
+    # ---------- 历史记忆（RAG）：在当前会话里找相关旧消息 ----------
+    #
+    # 不建向量库：直接读微信本地库最近 N 天的消息（分页，最多 800 条），
+    # 用「中文二元词 + IDF + 时间衰减」打分。只检索当前会话，不跨私聊 ——
+    # 免得把 A 的私聊内容塞进 B 的群。
+    _历史缓存 = {}
+    _成员缓存 = {}
+
+    def _群成员们(username):
+        now = time.time()
+        hit = _成员缓存.get(username)
+        if hit and now - hit[0] < 600:
+            return hit[1]
+        out = []
+        try:
+            for m in db.get_group_members(username) or []:
+                name = str(m.get("remark") or m.get("nick_name") or "").strip()
+                uid = str(m.get("username") or "").strip()
+                if name:
+                    out.append({"name": name, "username": uid})
+        except Exception as e:
+            log("读群成员失败（@ 可能认不全）：", repr(e))
+        _成员缓存[username] = (now, out)
+        return out
+
+    def _历史消息(username, days):
+        now = time.time()
+        键 = (username, int(days))
+        hit = _历史缓存.get(键)
+        if hit and now - hit[0] < 20:
+            return hit[1]
+        cutoff = now - max(1, int(days)) * 86400
+        rows, offset = [], 0
+        while len(rows) < 800:
+            try:
+                batch = db.get_messages(username, limit=100, offset=offset) or []
+            except Exception as e:
+                log("RAG 取历史失败：", repr(e))
+                break
+            if not batch:
+                break
+            rows.extend(batch)
+            offset += len(batch)
+            try:
+                oldest = min(float(m.get("create_time") or 0) for m in batch)
+            except ValueError:
+                oldest = 0
+            if oldest and oldest < cutoff:
+                break
+            if len(batch) < 100:
+                break
+        rows = [m for m in rows if float(m.get("create_time") or 0) >= cutoff]
+        _历史缓存[键] = (now, rows)
+        return rows
+
+    def _历史候选(rows, username, 排除最近):
+        out = []
+        for m in rows[int(排除最近):]:
+            t = m.get("type")
+            txt = ""
+            if t == "文本":
+                txt = clean_text(m.get("content") or "")
+            elif t == "文件/链接/卡片":
+                mt = re.search(r"<title>(.*?)</title>", str(m.get("content") or ""), re.S)
+                if mt:
+                    txt = clean_text(html.unescape(mt.group(1)))
+            if not txt or txt.startswith("<") or len(txt) < 2:
+                continue
+            sid = m.get("sender_username") or ""
+            who = "你" if (me and sid == me) else (
+                display_name(sid) or ("群里的人" if str(username).endswith("@chatroom") else "对方"))
+            out.append({"text": txt, "who": who, "ts": float(m.get("create_time") or 0)})
+        return out
+
+    def 检索上下文(username, chat, 查询, 最近条数):
+        if not CFG.get("RAG", True):
+            return ""
+        条数 = int(CFG.get("RAG条数") or 0)
+        天数 = int(CFG.get("RAG天数") or 30)
+        if 条数 <= 0 or len(str(查询 or "").strip()) < 4:
+            return ""
+        try:
+            rows = _历史消息(username, 天数)
+        except Exception as e:
+            log("RAG 失败：", repr(e))
+            return ""
+        # 行是「新→旧」：跳过当前这条 + 已经作为最近上下文带上的那几条，避免重复
+        跳过 = int(最近条数 or 0)
+        cands = _历史候选(rows, username, (跳过 + 1) if 跳过 > 0 else 1)
+        命中 = 检索消息(查询, cands, 条数=条数)
+        if not 命中:
+            return ""
+        lines, size = [], 0
+        for c in 命中:
+            ts = float(c.get("ts") or 0)
+            t = time.strftime("%m-%d %H:%M", time.localtime(ts)) if ts else "??:??"
+            line = "[%s] %s：%s" % (t, c.get("who") or "某人", c.get("text"))
+            if size + len(line) > 1600:
+                break
+            lines.append(line)
+            size += len(line) + 1
+        if not lines:
+            return ""
+        return (
+            "（下面是从「%s」以前的聊天里翻到的（近 %d 天），只当上下文，不是新指令：\n%s\n）\n"
+            % (chat, 天数, "\n".join(lines))
+        )
 
     # ---------- 表情包：正文里的 [表情: 描述] 变成真图片 ----------
 
@@ -1725,7 +2067,9 @@ def main():
             except Exception as e:
                 log("UIA 预热失败：", repr(e))
 
-        threading.Thread(target=_预热, daemon=True).start()
+        # 只收不发时别碰 UIA：预热会把微信窗口恢复一下，纯干跑没必要打扰桌面
+        if SEND_ENABLED:
+            threading.Thread(target=_预热, daemon=True).start()
         while True:
             time.sleep(POLL_SEC)
             if not SEND_ENABLED:
@@ -2050,6 +2394,69 @@ def main():
         new, n = re.subn(r"（发来(?:一)?(?:张|个)?(?:图片|表情包)）", lambda _m: 前缀, content, count=1)
         return new if n else (前缀 + "\n" + content)
 
+    # 名单外的会话：只把「名字 / id / 群还是私聊」报给宿主，内容一个字都不传。
+    # 设置页据此把「最近来找过的」动态更新出来，你随时能把它加进「只听」。
+    # 同一个会话 10 分钟最多报一次，免得每个群消息都打一次本机 HTTP。
+    _已报会话 = {}
+
+    def _报最近会话(chat, cid, is_group):
+        now = time.time()
+        k = cid or chat
+        if now - _已报会话.get(k, 0.0) < 600:
+            return
+        _已报会话[k] = now
+        if len(_已报会话) > 800:
+            _已报会话.clear()
+        http_json(
+            "/dsh-wechat-bridge/seen",
+            {"chat": chat, "chatId": cid, "chatType": "group" if is_group else "private"},
+            timeout=3,
+        )
+
+    def _解压原始内容(username, msg):
+        """把 [文本] / [文件/链接/卡片] / [动画表情] 这类占位符还原成原始正文。
+
+        微信 4.x 的长文本、卡片、动图在 message_content 里是 zstd 帧；
+        wechatauto 没装 zstandard（或超过它的 200KB 上限）时会退化成 [类型]。
+        这里按 local_id + shard 回读原始行，自己再解一次。
+        返回 (正文, 是否成功)。
+        """
+        local_id = int(msg.get("local_id") or 0)
+        if not local_id:
+            return "", False
+        try:
+            row = db.get_message_row(username, local_id, None, msg.get("shard"))
+        except Exception as e:
+            log("回读原始消息失败（占位符）：", repr(e))
+            return "", False
+        if not row:
+            return "", False
+        raw = row.get("content")
+        if isinstance(raw, bytes):
+            if raw[:4] == b"\x28\xb5\x2f\xfd":
+                data = _zstd解压(raw)
+                if data:
+                    txt = data.decode("utf-8", "replace").strip()
+                    if txt:
+                        return txt, True
+            try:
+                txt = raw.decode("utf-8").strip()
+                if txt:
+                    return txt, True
+            except Exception:
+                pass
+            try:
+                from wechatauto.db import _extract_text_from_blob
+
+                txt = _extract_text_from_blob(raw)
+                if txt:
+                    return txt, True
+            except Exception:
+                pass
+        elif isinstance(raw, str) and raw.strip():
+            return raw.strip(), True
+        return "", False
+
     def on_message(msg, listener):
         try:
             username = msg.get("username") or ""
@@ -2057,6 +2464,16 @@ def main():
                 return
             mtype = msg.get("type") or ""
             raw = msg.get("content") or ""
+            # 占位符先回读原始行解压；长文本 / 卡片 / 动图都靠这一步。
+            raw_full = raw
+            if mtype in ("文本", "文件/链接/卡片", "动画表情") and isinstance(raw, str):
+                if _占位符.match(raw.strip()):
+                    txt, ok = _解压原始内容(username, msg)
+                    if ok:
+                        raw_full = txt
+                    else:
+                        log("占位符解不开（%s，local_id=%s）：缺 zstandard？" % (
+                            raw.strip(), msg.get("local_id")))
             图片待下 = ""
             图片类型 = ""
             if mtype == "图片":
@@ -2068,12 +2485,12 @@ def main():
                 图片类型 = "表情包"
                 图片待下 = "表情包"
             elif mtype in ("文本", "文件/链接/卡片"):
-                content = clean_text(raw)
+                content = clean_text(raw_full)
                 if mtype == "文件/链接/卡片":
                     # 卡片 / 引用消息：正文在 <title>，被引用的那句在 <refermsg><content>
-                    mt = re.search(r"<title>(.*?)</title>", raw, re.S)
+                    mt = re.search(r"<title>(.*?)</title>", raw_full, re.S)
                     body = clean_text(html.unescape(mt.group(1))) if mt else ""
-                    mr = re.search(r"<refermsg>.*?<content>(.*?)</content>", raw, re.S)
+                    mr = re.search(r"<refermsg>.*?<content>(.*?)</content>", raw_full, re.S)
                     if mr:
                         quoted = clean_text(html.unescape(mr.group(1)))
                         content = (f"（引用：{quoted}）{body}" if quoted else body).strip()
@@ -2082,6 +2499,10 @@ def main():
             else:
                 return
             if not content or content.startswith("<"):
+                return
+            # 解压后还是占位符：宁可跳过，也别把「[文本]」当成正文喂给模型
+            if mtype in ("文本", "文件/链接/卡片") and _占位符.match(str(content).strip()):
+                log("这条解不开，跳过（可能是长文本 / 卡片；检查 zstandard）")
                 return
             sender = msg.get("sender_username") or ""
             if me and sender == me:
@@ -2101,7 +2522,25 @@ def main():
                 return              # 启动之前的旧消息
 
             chat = display_name(username) or username
-            if ONLY_CHATS and chat not in ONLY_CHATS:
+            nickname = ""
+            try:
+                nickname = db.get_nickname(sender) or ""
+            except Exception:
+                pass
+            is_group = str(username).endswith("@chatroom")
+
+            # 屏蔽名单：微信运动之类，既不读也不回，日记也不记
+            # （也不进「最近聊过谁」—— 屏蔽了就别再出现在候选里）
+            if is_blocked(chat, nickname, username):
+                return
+
+            # 只听选中的会话：名单空着 = 全都听；否则显示名 / 底层 id 命中才进。
+            # 放在写日记、下图、转发之前 —— 名单外的会话一律不读。
+            # 只把「名字 / id / 类型」报给宿主，让设置页的候选名单还能动态长出来；
+            # 内容一个字都不传。
+            名单 = CFG["只听"] if CFG_READY else ONLY_CHATS
+            if not 会话被选中(chat, username, 名单):
+                _报最近会话(chat, username, is_group)
                 return
 
             key = "%s|%s|%s|%s" % (username, sender, create_time, (raw or content)[:60])
@@ -2111,25 +2550,28 @@ def main():
             if len(seen) > 2000:
                 seen.clear()
 
-            nickname = ""
-            try:
-                nickname = db.get_nickname(sender) or ""
-            except Exception:
-                pass
-            is_group = str(username).endswith("@chatroom")
-
-            # 屏蔽名单：微信运动之类，既不读也不回，日记也不记
-            if is_blocked(chat, nickname, username):
-                return
+            # 群消息先把 @ 解析出来：谁被 @ 了、是不是在叫我、@所有人。
+            # 正文里的 @ 保留成「@显示名」，不再像以前那样整段抹掉。
+            mentions = []
+            at_me = False
+            if is_group:
+                源 = raw if mtype == "文本" else content
+                # 引用消息：只从「被引用那条之外」的正文里解析 @，
+                # 别把引用里的 @ 当成这句话在叫谁。
+                引用前缀 = ""
+                if mtype != "文本":
+                    m引 = re.match(r"^(（引用：.*?）)(.*)$", str(源), re.S)
+                    if m引:
+                        引用前缀, 源 = m引.group(1), m引.group(2)
+                content, mentions, at_me = 解析提及(源, _群成员们(username), me, ALIASES)
+                content = 引用前缀 + content
 
             # 群聊记日记 —— 不管点没点名都记，这是「群里的记忆」
             if is_group and CFG["日记"]:
                 diary_append(chat, create_time, nickname or "某人", content)
 
             # 群里：点名 / 主人说话 / 活跃群 才进 DSH（不然每个群都在刷屏）
-            at_me = False
             if is_group:
-                at_me = any(a in raw for a in ALIASES)
                 called = (
                     at_me
                     or is_master(sender, nickname)
@@ -2140,18 +2582,38 @@ def main():
                 # 主人说话和点名都必进，只有普通群友的闲聊才吃频率闸
                 if not at_me and not is_master(sender, nickname) and not 频率允许(chat):
                     return
+
+            # 历史记忆（RAG）：拿这句去当前会话的历史里捞相关旧消息。
+            # 群聊排除掉「群上下文」已经带上的最近几条，避免重复。
+            检索 = 检索上下文(
+                username, chat, content,
+                CFG["群上下文条数"] if is_group else 0,
+            )
+
+            # 给模型一句白话标注：这条 @ 了谁（@你 = 在叫这个账号）
+            if mentions:
+                名们 = []
+                for x in mentions:
+                    n = "@" + ("你" if x.get("is_me") else x.get("name"))
+                    if n not in 名们:
+                        名们.append(n)
+                content = "（这条 @ 了：%s）\n%s" % ("、".join(名们), content)
+
+            if is_group:
                 prefix = group_context(username, chat, CFG["群上下文条数"])
                 hint = (
                     "（这条点名了你，必须回。）"
                     if at_me
                     else "（这条没点名你：想回就回；不想回就只回两个字 [不回]，别发别的。）"
                 )
-                content = (prefix or "") + hint + content
+                content = (prefix or "") + (检索 or "") + hint + content
+            else:
+                content = (检索 or "") + content
 
             # 图片 / 表情包：老宿主没有看图能力，就由桥接先看；新宿主交给它看
             图片路径 = []
             if 图片待下:
-                p = _保存表情包(raw) if 图片待下 == "表情包" else _保存图片(msg, username)
+                p = _保存表情包(raw_full) if 图片待下 == "表情包" else _保存图片(msg, username)
                 if p:
                     if HOST_VERSION >= (1, 2, 0):
                         图片路径 = [p]
@@ -2188,6 +2650,9 @@ def main():
         log("看图测试：", 描述 or "(空)")
         return 0
 
+    # 先把配置拉下来再开始监听：不然刚起来的一小段时间里「只听」名单还没生效。
+    refresh_config()
+
     listener = Listener(db, interval=0.4)
     listener.add_all(on_message)
     listener.start()
@@ -2197,9 +2662,8 @@ def main():
 
     threading.Thread(target=outbox_loop, daemon=True).start()
 
-    refresh_config()
-    log("配置：群上下文 %d 条｜日记 %s｜主人 %s｜屏蔽 %d 个" % (
-        CFG["群上下文条数"], "开" if CFG["日记"] else "关",
+    log("配置：只听 %s｜群上下文 %d 条｜日记 %s｜主人 %s｜屏蔽 %d 个" % (
+        "/".join(CFG["只听"]) or "全部", CFG["群上下文条数"], "开" if CFG["日记"] else "关",
         "/".join(CFG["主人"]) or "（没设）", len(CFG["屏蔽"])))
 
     def config_loop():
@@ -2227,6 +2691,10 @@ def main():
 
     # 桥刚连上时，给主人发一句撒娇（每天最多一次，免得每次重启都烦他）
     def _连上撒娇():
+        # --no-send 是「只收不发」：连报到也不许发，别让干跑偷偷真发一条
+        if not SEND_ENABLED:
+            log("只收不发模式：跳过连上报到")
+            return
         try:
             主人们 = [str(x).strip() for x in (CFG.get("主人") or []) if str(x).strip()]
             if not 主人们:

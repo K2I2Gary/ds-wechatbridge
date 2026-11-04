@@ -8,3 +8,5 @@ __pycache__/
 *.log
 dsh-wechat-bridge/
 .DS_Store
+# 个人人设（人格画像）默认不入库
+humanity.txt

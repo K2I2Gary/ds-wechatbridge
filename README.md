@@ -31,7 +31,7 @@ dsh plugin --profile desktop add github:thawline/dsh-wechat-bridge
 
 ## 第一次用（三步）
 
-1. **装依赖**：点「装依赖」。有现成的 Python 环境（装好 `wechatauto-replica` 的）就直接填「解释器」路径，不用建虚拟环境；没有就让它用系统 Python（3.10+）建一个。
+1. **装依赖**：点「装依赖」。有现成的 Python 环境（装好 `wechatauto-replica` 的）就直接填「解释器」路径，不用建虚拟环境；没有就让它用系统 Python（3.10+）建一个。长文本 / 卡片 / 动图靠 `zstandard` 解压，也会一起装。
 2. **启动**：点「启动」，下面会滚日志，看到「桥接已就绪」就成了。
 3. **选会话**：挑一间「默认会话」，打开「总开关」。先留着「试运行」看它记的「该发什么」对不对，再把试运行关掉。
 
@@ -39,7 +39,7 @@ dsh plugin --profile desktop add github:thawline/dsh-wechat-bridge
 
 ## 不想装 Python？用自带的运行环境
 
-本仓库的 Release 里有一份打好的 Python 3.12 运行环境（Windows x64，已经装好 `wechatauto-replica`、`uiautomation`、`numpy`、`Pillow`、`pywin32`、`comtypes` 等，不需要再联网装东西）。
+本仓库的 Release 里有一份打好的 Python 3.12 运行环境（Windows x64，已经装好 `wechatauto-replica`、`uiautomation`、`numpy`、`zstandard`、`Pillow`、`pywin32`、`comtypes` 等，不需要再联网装东西）。
 
 ```
 解压 wechat-bridge-runtime-win64-py312.zip
@@ -85,6 +85,36 @@ dsh plugin --profile desktop add github:thawline/dsh-wechat-bridge
 - 15:08 Zierk：昨晚一点
 ```
 
+## 微信语义与历史记忆（RAG）
+
+### @ 不再被抹掉
+
+微信 4.x 群文本里的 @ 有两种写法：英文/数字昵称后面跟 `U+2005` 终止符，中文昵称直接连着正文。桥接会按「群成员名最长匹配 + U+2005」解析，正文保留成 `@昵称`，再额外给模型一句：
+
+```
+（这条 @ 了：@你、@张三）
+```
+
+- `@你` 表示在叫这个登录账号（也就是你的 AI 伙伴），`@所有人` 也算点名
+- 群里被点名时仍然走「必须回」；没点名时可以回 `[不回]`
+- 正文里直接写别名（大肥鱼 / 鲸鲸等）也算在叫它
+
+### 历史记忆（RAG）
+
+收到一条消息时，桥接会在**当前会话**最近 N 天（默认 30 天）的历史里找相关的旧消息，和最近几条上下文一起交给模型：
+
+```
+（我翻了翻「周末活动群」以前的聊天（近 30 天），和这句有关的：
+[10-20 21:03] 张三：上次说的那个配置我发群里了
+[10-22 08:10] 你：看到了，晚上试试
+）
+```
+
+- 纯本地词面检索：中文二元词 + IDF + 时间衰减 + 原句命中加成，**不建向量库、不调 embedding、不上传聊天记录**
+- 只查当前会话，不跨私聊、不跨群，避免串台
+- 设置页「群聊与记忆」里可以调「检索条数 / 天数」，填 0 条 = 关
+- 群聊会排除掉已经作为「群上下文条数」带上的那几条，不重复
+
 ## 表情包
 
 伙伴在回复里写 `[表情: 描述]`，插件会去 `dsh-meme` 的表情库里按 caption / 关键词找那张图，**当图片消息发到微信**，那串描述本身不会出现在正文里。
@@ -98,19 +128,64 @@ dsh plugin --profile desktop add github:thawline/dsh-wechat-bridge
 1. 自己刚发出去的几条，按文本比对跳过（比对前先规整空格换行）
 2. 往外发完的 12 秒内，文件传输助手里冒出来的消息一律不读
 
+## 只听选中的会话
+
+设置里「只听这些会话」留空 = 全都听；填了（微信显示名 / wxid / `xxx@chatroom`）就只读这些：
+
+- 名单外的私聊、群消息：**不转进 DSH、不下载图片、不写群日记、也不回**
+- 名单内的群仍然按「点名 / 主人 / 频率」那套规矩走
+- 「屏蔽」优先级更高：同一个会话既在「只听」又在「屏蔽」里，还是不理
+- 设置页的「最近来找过的」会动态列出所有会话，点一下就能加进 / 移出名单。名单外的会话只上报名字 / id / 群还是私聊，**不上报任何消息内容**；同一会话 10 分钟最多报一次
+- 改完保存，桥接 30 秒内生效；重启桥接时也会按它启动
+
+## 人格画像（本地文件）
+
+把 `humanity.txt` 放在插件目录（或 `~/.dsh/wechat-persona.txt`），桥接会读来做人格设定；设置页「人格画像」里也能填任意路径。
+
+- 第 1 条微信消息带完整人设，之后每 N 条（默认 10）重提一次，不用每条都塞一遍
+- 文件改了按 mtime 自动重读，下一条微信消息生效（不用重启）
+- 注入格式是 `<system-reminder><persona>…</persona></system-reminder>`，只影响说话风格，不改变事实、工具权限和安全边界
+- 关掉「启用人格」就完全不带；人设文件不存在时也不报错，只是不带
+
+### 对话温度
+
+设置页「人格画像」里的滑杆，0–1，步长 0.1：
+
+| 值 | 行为 |
+| --- | --- |
+| 0.0 | 主动模式：主动发起话题、追问，不必等对方先开口 |
+| 0.1–0.4 | 偏主动：可以接话、追问、提新话题 |
+| 0.5 | 正常对话，不额外加行为提示 |
+| 0.6–0.9 | 偏被动：不主动开新话题，回答简短 |
+| 1.0 | 消极模式：能短则短，但绝不沉默；模型真没说话时宿主兜一句「嗯，我在。」 |
+
+- 这个值会作为采样 `temperature`，通过 agent 作用域的 `agent/request` 注入每次模型请求；同时每条消息带一句行为提示（0.5 不加）
+- 温度是**会话级**的：绑到微信的 agent 的所有模型请求都会用这个值
+- 0 的「主动」是对话内的主动（主动开话题 / 追问）；目前不会在没人说话时定时自动发消息
+
+> 装到 DSH 后，把 `humanity.txt` 一起放到插件目录（`~/.dsh/profiles/desktop/node_modules/dsh-wechat-bridge/`），或者在设置页填它的绝对路径，或者放到 `~/.dsh/wechat-persona.txt`。
+
 ## 配置项
 
 | 项 | 默认 | 说明 |
 | --- | --- | --- |
 | 总开关 | 关 | 关着 = 一句都不发 |
 | 试运行 | 开 | 开着 = 只在日志里记「该发什么」，不真发 |
+| 人格 | 开 | 从本地文件读人设，注进微信消息 |
+| 人格文件 | 空 | 留空 = 插件目录 `humanity.txt` / `~/.dsh/wechat-persona.txt` |
+| 人格重提条数 | 10 | 每 N 条微信消息重新注入一次完整人设 |
+| 温度 | 0.5 | 0 = 主动发起话题，0.5 = 正常，1 = 被动但不沉默；步长 0.1 |
 | 默认会话 | 空 | 微信来的消息进哪一间 |
+| 只听 | 空 | 只读这些会话（显示名 / wxid / `xxx@chatroom`，逗号或回车分隔）。留空 = 全部会话都听 |
 | 单独绑定 | 空 | 一个微信聊天 → 一间会话。聊天那边可填显示名，也可填 wxid / `xxx@chatroom`；「最近来找过的」里点一下就绑上默认会话 |
 | 接口令牌 | 空 | Python 侧请求要带的口令，留空不校验 |
 | 解释器 | 空 | 一个装好 `wechatauto-replica` 的 `python.exe`，填了就不用建 venv |
 | 主人 | 空 | wxid 或昵称，逗号分隔 |
 | 外人只能聊天 | 开 | 见上面「权限」 |
 | 群上下文条数 | 6 | |
+| RAG | 开 | 收到消息时，在当前会话的历史里检索相关旧消息一起给模型 |
+| RAG条数 | 5 | 每次最多带几条；0 = 关 |
+| RAG天数 | 30 | 往回找多少天 |
 | 群回复间隔秒 | 30 | |
 | 群每小时上限 | 6 | |
 | 群聊日记 | 开 | |
@@ -135,6 +210,7 @@ dsh plugin --profile desktop add github:thawline/dsh-wechat-bridge
 | 方法 | 路径 | 干什么 |
 | --- | --- | --- |
 | POST | `/dsh-wechat-bridge/receive` | 收：`{text, 图片?, 图片类型?, chat, chatId, chatType, sender, senderId}` → 转进会话 |
+| POST | `/dsh-wechat-bridge/seen` | 名单外会话只报「名字 / id / 类型」，给设置页的候选列表用（不转消息） |
 | GET | `/dsh-wechat-bridge/outbox` | 发：取走待发队列 |
 | POST | `/dsh-wechat-bridge/outbox/ack` | 发完回报 |
 | GET | `/dsh-wechat-bridge/state` | 状态、配置、会话、日志 |
@@ -151,6 +227,7 @@ dsh plugin --profile desktop add github:thawline/dsh-wechat-bridge
 - **同一个微信号别同时开两个桥**（比如鲸鲸的桥接），会抢窗口、发送会乱。
 - 微信个人号自动化不是官方接口，**有封号风险**，建议先用小号 / 测试号。
 - 微信升级可能让它失效：`wechatauto` 靠一张按版本号硬编码的地址表找控件树。升级后发不出去先看设置页下面的日志。
+- **长文本 / 卡片 / 动图显示成 `[文本]`**：微信 4.x 把这些内容存成 zstd 帧，桥接环境缺 `zstandard` 时就会退化。点「装依赖」会一起装；手动补：`"<venv>\Scripts\python.exe" -m pip install zstandard`，装完重启桥接。
 - 只在 Windows 上能用（UI Automation 是 Windows 独有的）。
 
 ## 相对原版的改动
@@ -163,14 +240,18 @@ dsh plugin --profile desktop add github:thawline/dsh-wechat-bridge
 - **群聊查名修正**：群的昵称查不到时用 `group_name_to_id` 兜底，否则群消息永远查不到（会导致重复发送判断失效）。
 - **一轮里多条回复会拼起来发**：以前同一轮的第二句会覆盖第一句，微信只能收到最后一句。
 - **临时目录兜底**：某些嵌入式 Python 探测不到可写的 `TEMP`（安全软件拦着时会这样），桥会退到自己的 `tmp/` 目录，不然连微信数据库都打不开。
+- **长文本 / 动图解压**：补 `zstandard`，并在遇到 `[文本]` 占位符时回读原始行自己解压，避免长文本、卡片、动图被截成占位符。
+- **人格画像、@ 语义、历史记忆（RAG）**：见上面相应章节。
 
 ## 开发自测
 
 改了 `lib/host.js` 或 `lib/client.js` 之后，两个脚本可以直接跑（不用开 DSH，也不碰真实配置 —— 记得把 `DSH_HOME` 指到临时目录）：
 
 ```powershell
-$env:DSH_HOME="$PWD\.testhome"; node _selftest.mjs         # 假 ctx 跑一遍宿主：保存 / 绑定 / 屏蔽 / 两个工具
+$env:DSH_HOME="$PWD\.testhome"; node _selftest.mjs         # 假 ctx 跑一遍宿主：保存 / 绑定 / 屏蔽 / 人格 / 两个工具
 $env:DSH_HOME="$PWD\.testhome"; node _selftest_client.mjs  # 假 React 把设置页渲染一遍：加标签、点绑定、轮询不冲掉
+python -I _selftest_filter.py                              # 「只听」筛选纯函数
+python -I _selftest_rag.py                                 # @ 解析 + RAG 检索 + zstd 解压
 ```
 
 ## 致谢

@@ -68,6 +68,7 @@ let 服务器 = {
   绑定情况: [],
   最近聊天: [{ 名: '群A', id: '1@chatroom', 类型: '群' }],
   桥接: { 运行中: false },
+  人格: { 开关: true, 路径: 'C:\\Users\\K2\\.dsh\\wechat-persona.txt', 字节: 2048 },
   日志: [],
   用量: null,
 }
@@ -141,6 +142,9 @@ const 文字 = 都(树).map((n) => 绳(n)).join(' | ')
 断言('拉到了 /state', 拉了几次 >= 1, 拉了几次)
 断言('有「不回谁（屏蔽）」这一栏', 文字.includes('不回谁（屏蔽）'), 文字.slice(0, 200))
 断言('有「单独绑定」', 文字.includes('单独绑定'), 文字.slice(0, 400))
+断言('有「历史记忆（RAG）」', 文字.includes('历史记忆（RAG）'), 文字.slice(0, 600))
+断言('有「人格画像」并显示已读路径', 文字.includes('人格画像') && 文字.includes('已读：'), 文字.slice(0, 900))
+断言('有「对话温度」且 0.5 显示正常', 文字.includes('对话温度') && 文字.includes('正常对话'), 文字.slice(0, 1200))
 断言('默认会话下拉选中了 session-aaa', !!都(树).find((n) => n.type === 'select' && n.props.value === 'session-aaa'), 都(树).filter((n) => n.type === 'select').map((n) => n.props.value))
 
 // 3 加一个「不回谁」
@@ -185,7 +189,7 @@ await 等()
 await 等()
 await 等()
 树 = 重画()
-const 群A = 都(树).find((n) => n.type === 'button' && 绳(n).includes('群A'))
+const 群A = 都(树).find((n) => n.type === 'button' && n.props['data-wx-bind'] === '群A')
 断言('「最近来找过的」里有群A', !!群A, 都(树).filter((n) => n.type === 'button').map(绳))
 群A.props.onClick()
 树 = 重画()
@@ -206,7 +210,78 @@ await 等()
 断言('绑定发出去一条：群A', !!发出去 && (发出去.体.绑定 || []).length === 1 && 发出去.体.绑定[0].聊天 === '群A', 发出去 && 发出去.体.绑定)
 断言('绑定带的会话是默认会话', 发出去.体.绑定[0].会话 === 'session-aaa', 发出去.体.绑定[0])
 
-// 9 半截行：删掉聊天名，保存要被拦
+// 8.5 RAG 控件：默认开、条数/天数能改并保存
+const rag开关 = 都(树).find((n) => n.type === 'input' && n.props['data-wx-rag'])
+断言('RAG 开关默认开', !!rag开关 && rag开关.props.checked === true, rag开关 && rag开关.props.checked)
+const 条数框 = 都(树).find((n) => n.type === 'input' && n.props.type === 'number' && n.props.value === 5)
+const 天数框 = 都(树).find((n) => n.type === 'input' && n.props.type === 'number' && n.props.value === 30)
+断言('RAG 条数 / 天数输入框在', !!条数框 && !!天数框, 都(树).filter((n) => n.type === 'input' && n.props.type === 'number').map((n) => n.props.value))
+条数框.props.onChange({ target: { value: '7' } })
+树 = 重画()
+const 天数框2 = 都(树).find((n) => n.type === 'input' && n.props.type === 'number' && n.props.value === 30)
+天数框2.props.onChange({ target: { value: '14' } })
+树 = 重画()
+const 保存R = 找按钮(树, '保存设置')
+保存R.props.onClick()
+await 等()
+await 等()
+树 = 重画()
+断言('RAG 条数 / 天数发出去了', 发出去.体.RAG条数 === 7 && 发出去.体.RAG天数 === 14, 发出去 && 发出去.体)
+
+// 9 只听：候选动态列表点一下就能加；手打也能加；保存发得出去
+const 听群A = 都(树).find((n) => n.type === 'button' && n.props['data-wx-listen'] === '群A')
+断言('「最近来找过的」里有「只听」的快捷按钮', !!听群A, 都(树).filter((n) => n.type === 'button').map((n) => [绳(n), n.props['data-wx-listen']]))
+听群A.props.onClick()
+树 = 重画()
+断言('点一下就进了「只听」标签', 都(树).some((n) => n.type === 'span' && 绳(n) === '群A'), 都(树).filter((n) => n.type === 'span').map(绳))
+
+const 听输入 = 找输入(树, '会话名 / wxid')
+断言('「只听」输入框在', !!听输入, 都(树).filter((n) => n.type === 'input').map((n) => n.props.placeholder))
+听输入.props.onChange({ target: { value: '测试群' } })
+树 = 重画()
+const 加听 = 找按钮(树, '加进名单')
+断言('「加进名单」按钮在', !!加听, 都(树).filter((n) => n.type === 'button').map(绳))
+加听.props.onClick()
+树 = 重画()
+断言('手打的也进了「只听」', 都(树).some((n) => n.type === 'span' && 绳(n) === '测试群'), 都(树).filter((n) => n.type === 'span').map(绳))
+const 保存听 = 找按钮(树, '保存设置')
+保存听.props.onClick()
+await 等()
+await 等()
+树 = 重画()
+断言('「只听」名单发出去了', !!发出去 && (发出去.体.只听 || []).join('|') === '群A|测试群', 发出去 && 发出去.体.只听)
+
+// 9.5 人格：文件路径能改并保存
+const 人格框 = 找输入(树, 'humanity.txt')
+断言('人格文件输入框在', !!人格框, 都(树).filter((n) => n.type === 'input').map((n) => n.props.placeholder))
+人格框.props.onChange({ target: { value: 'C:\\persona.txt' } })
+树 = 重画()
+找按钮(树, '保存设置').props.onClick()
+await 等()
+await 等()
+树 = 重画()
+断言('人格文件路径发出去了', 发出去.体.人格文件 === 'C:\\persona.txt', 发出去 && 发出去.体)
+
+// 9.6 温度滑杆：默认 0.5，0 / 1 都能保存
+const 滑杆 = 都(树).find((n) => n.type === 'input' && n.props.type === 'range')
+断言('温度滑杆默认 0.5', !!滑杆 && Number(滑杆.props.value) === 0.5, 滑杆 && 滑杆.props.value)
+滑杆.props.onChange({ target: { value: '0' } })
+树 = 重画()
+找按钮(树, '保存设置').props.onClick()
+await 等()
+await 等()
+树 = 重画()
+断言('温度 0 发出去了', 发出去.体.温度 === 0, 发出去 && 发出去.体)
+const 滑杆2 = 都(树).find((n) => n.type === 'input' && n.props.type === 'range')
+滑杆2.props.onChange({ target: { value: '1' } })
+树 = 重画()
+找按钮(树, '保存设置').props.onClick()
+await 等()
+await 等()
+树 = 重画()
+断言('温度 1 发出去了', 发出去.体.温度 === 1, 发出去 && 发出去.体)
+
+// 10 半截行：删掉聊天名，保存要被拦
 const 输入们 = 都(树).filter((n) => n.type === 'input' && n.props.value === '群A')
 输入们[0].props.onChange({ target: { value: '' } })
 树 = 重画()

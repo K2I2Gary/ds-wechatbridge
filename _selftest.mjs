@@ -9,7 +9,11 @@ const 聊天路径 = join(家, 'wechat-bridge-chats.json')
 
 writeFileSync(
   配置路径,
-  JSON.stringify({ 总开关: true, 试运行: false, 默认会话: 'session-aaa', 绑定: [], 屏蔽: ['微信运动'] }, null, 2),
+  JSON.stringify(
+    { 总开关: true, 试运行: false, 人格: false, 默认会话: 'session-aaa', 绑定: [], 屏蔽: ['微信运动'] },
+    null,
+    2,
+  ),
   'utf8',
 )
 // 上一轮留下的「最近聊天」要清掉，不然「一开始是空的」这条永远过不去
@@ -27,11 +31,18 @@ const 工具 = []
 const 路线 = new Map()
 const 收到的 = []
 const agent表 = new Map()
+const agent事件 = []
 
 const 造agent = (id) => ({
   session: { id },
   followup: async (m) => 收到的.push({ id, m }),
-  ctx: { tools: { guard: () => {} } },
+  ctx: {
+    tools: { guard: () => {} },
+    on: (名, fn) => {
+      agent事件.push({ id, 名, fn })
+      return () => {}
+    },
+  },
 })
 
 const ctx = {
@@ -88,6 +99,13 @@ const 断言 = (名, 条件, 细节) => {
 const 概 = await 屏.概况()
 断言(`版本 ${期望版本}`, 概.版本 === 期望版本, 概.版本)
 断言('最近聊天是数组', Array.isArray(概.最近聊天) && 概.最近聊天.length === 0, 概.最近聊天)
+断言('「只听」默认是空名单（全部会话）', Array.isArray(概.配置.只听) && 概.配置.只听.length === 0, 概.配置.只听)
+断言(
+  'RAG 默认开、5 条、30 天',
+  概.配置.RAG === true && 概.配置.RAG条数 === 5 && 概.配置.RAG天数 === 30,
+  { RAG: 概.配置.RAG, 条数: 概.配置.RAG条数, 天数: 概.配置.RAG天数 },
+)
+断言('温度默认 0.5', 概.配置.温度 === 0.5, 概.配置.温度)
 
 // 3 半截绑定行不收
 const 存1 = await 调('/dsh-wechat-bridge/save', { 绑定: [{ 聊天: '', 会话: 'session-aaa' }] })
@@ -158,5 +176,162 @@ const 绑加 = await 绑.execute({ action: 'add', chat: '第三个群', session:
 断言('工具写进了绑定', 读配置().绑定.some((b) => b.聊天 === '第三个群' && b.会话 === 'session-bbb'), 读配置().绑定)
 await 绑.execute({ action: 'remove', chat: '第三个群' })
 断言('工具能解绑', !读配置().绑定.some((b) => b.聊天 === '第三个群'), 读配置().绑定)
+
+// 10 只听：名单外的会话不收（宿主这层也要拦）
+await 调('/dsh-wechat-bridge/save', { 只听: ['测试群'] })
+断言('「只听」落盘了', 读配置().只听.join('|') === '测试群', 读配置().只听)
+收到的.length = 0
+const 收3 = await 调('/dsh-wechat-bridge/receive', {
+  text: '不该进来',
+  chat: '另一个群',
+  chatId: '456@chatroom',
+  chatType: 'group',
+  sender: '李四',
+  senderId: 'wxid_lisi',
+})
+断言('名单外的会话被拦下', 收3.ok === false && /只听/.test(收3.说 || ''), 收3)
+断言('名单外没喂进会话', 收到的.length === 0, 收到的.length)
+const 收4 = await 调('/dsh-wechat-bridge/receive', {
+  text: '该进来',
+  chat: '测试群',
+  chatId: '999@chatroom',
+  chatType: 'group',
+  sender: '张三',
+  senderId: 'wxid_zhangsan',
+})
+断言('名单内的照常进', 收4.ok === true && 收到的.length === 1, { 收4, 收到: 收到的.map((x) => x.id) })
+
+// 11 只听也认底层 id：改备注、同名都不怕
+await 调('/dsh-wechat-bridge/save', { 只听: ['123@chatroom'] })
+收到的.length = 0
+const 收5 = await 调('/dsh-wechat-bridge/receive', {
+  text: '按 id 进来',
+  chat: '改了备注的群',
+  chatId: '123@chatroom',
+  chatType: 'group',
+  sender: '王五',
+  senderId: 'wxid_wangwu',
+})
+断言('按群 id 命中', 收5.ok === true && 收到的.length === 1, { 收5, 收到: 收到的.map((x) => x.id) })
+
+// 12 逗号字符串也能存；清空 = 恢复全听
+await 调('/dsh-wechat-bridge/save', { 只听: '群A,群B，群C' })
+断言('「只听」支持逗号 / 中文逗号', 读配置().只听.join('|') === '群A|群B|群C', 读配置().只听)
+await 调('/dsh-wechat-bridge/save', { 只听: [] })
+收到的.length = 0
+const 收6 = await 调('/dsh-wechat-bridge/receive', {
+  text: '清空后随便谁都能进',
+  chat: '随便一个私聊',
+  chatId: 'wxid_x',
+  chatType: 'private',
+  sender: '路人',
+  senderId: 'wxid_x',
+})
+断言('清空后恢复全听', 收6.ok === true && 收到的.length === 1, { 收6, 收到: 收到的.map((x) => x.id) })
+
+// 13 名单外的会话只报「名字 / id / 类型」，也能进设置页的候选
+const 报 = await 调('/dsh-wechat-bridge/seen', { chat: 'kiki', chatId: 'wxid_kiki', chatType: 'private' })
+断言('/seen 收下了', 报.ok === true, 报)
+const 概3 = await 屏.概况()
+断言(
+  '候选里出现了名单外的会话',
+  概3.最近聊天.some((x) => x.名 === 'kiki' && x.id === 'wxid_kiki' && x.类型 === '私聊'),
+  概3.最近聊天,
+)
+
+// 14 RAG 配置能存能读、越界会被夹住
+await 调('/dsh-wechat-bridge/save', { RAG: false, RAG条数: 0, RAG天数: 7 })
+const 配R = 读配置()
+断言('RAG 配置落盘', 配R.RAG === false && 配R.RAG条数 === 0 && 配R.RAG天数 === 7, 配R)
+await 调('/dsh-wechat-bridge/save', { RAG条数: 99, RAG天数: 0 })
+断言('RAG 条数封顶 20、天数非法回 30', 读配置().RAG条数 === 20 && 读配置().RAG天数 === 30, 读配置())
+await 调('/dsh-wechat-bridge/save', { RAG: true, RAG条数: 5, RAG天数: 30 })
+
+// 15 人格画像：第 1 条注入、第 2 条不重复、第 3 条按间隔重提
+const 人格路径 = join(家, 'test-persona.txt')
+writeFileSync(人格路径, '你是测试人格。回答要短。', 'utf8')
+await 调('/dsh-wechat-bridge/save', { 人格: true, 人格文件: 人格路径, 人格重提条数: 3 })
+收到的.length = 0
+const 发人格消息 = async (文本) => {
+  const r = await 调('/dsh-wechat-bridge/receive', {
+    text: 文本,
+    chat: '人格测试',
+    chatId: 'wxid_persona',
+    chatType: 'private',
+    sender: '测试者',
+    senderId: 'wxid_persona',
+  })
+  return { r, 文: 收到的.length ? 收到的[收到的.length - 1].m.content[0].text : '' }
+}
+const 人1 = await 发人格消息('第一句')
+断言('第 1 条带完整人格', 人1.r.ok === true && /<persona>/.test(人1.文) && /测试人格/.test(人1.文), 人1)
+const 人2 = await 发人格消息('第二句')
+断言('第 2 条不重复塞人格', 人2.r.ok === true && !/<persona>/.test(人2.文), 人2)
+const 人3 = await 发人格消息('第三句')
+断言('第 3 条按间隔重提人格', 人3.r.ok === true && /<persona>/.test(人3.文), 人3)
+const 概P = await 屏.概况()
+断言(
+  '概况里有人格路径和大小',
+  概P.人格 && 概P.人格.路径 === 人格路径 && 概P.人格.字节 > 0,
+  概P.人格,
+)
+
+// 16 温度：0 主动 / 0.5 正常 / 1 被动但不沉默；同时注进请求配置
+const 发温度消息 = async (文本) => {
+  const r = await 调('/dsh-wechat-bridge/receive', {
+    text: 文本,
+    chat: '温度测试',
+    chatId: 'wxid_temp',
+    chatType: 'private',
+    sender: '测试者',
+    senderId: 'wxid_temp',
+  })
+  return { r, 文: 收到的.length ? 收到的[收到的.length - 1].m.content[0].text : '' }
+}
+await 调('/dsh-wechat-bridge/save', { 温度: 0 })
+收到的.length = 0
+const t0 = await 发温度消息('在吗')
+断言('温度 0 注入主动模式提示', t0.r.ok === true && /主动模式/.test(t0.文), t0)
+const 温处理器 = agent事件.find((x) => x.名 === 'agent/request' && x.id === 'session-aaa')
+断言('agent/request 温度钩子挂上了', !!温处理器, agent事件.map((x) => [x.id, x.名]))
+if (温处理器) {
+  const 请求配置 = await 温处理器.fn({}, async () => ({ provider: 'p', model: 'm' }))
+  断言('温度注进了请求配置', 请求配置.temperature === 0, 请求配置)
+}
+
+await 调('/dsh-wechat-bridge/save', { 温度: 1 })
+if (温处理器) {
+  const 请求配置1 = await 温处理器.fn({}, async () => ({ provider: 'p', model: 'm' }))
+  断言('温度改了请求配置跟着变', 请求配置1.temperature === 1, 请求配置1)
+}
+收到的.length = 0
+const t1 = await 发温度消息('随便说点什么')
+断言(
+  '温度 1 注入消极但不沉默',
+  t1.r.ok === true && /消极模式/.test(t1.文) && /不能沉默/.test(t1.文),
+  t1,
+)
+// 模拟模型一句都没说：turn/end 兜一句，保证微信里有回音
+屏.收到事件({ id: 'session-aaa' }, { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } })
+const 兜底 = await 调('/dsh-wechat-bridge/outbox', {})
+断言(
+  '温度 1 真沉默时兜底发一句',
+  兜底.消息 && 兜底.消息.some((x) => x.text === '嗯，我在。' && x.chat === '温度测试'),
+  兜底,
+)
+
+await 调('/dsh-wechat-bridge/save', { 温度: 0.5 })
+收到的.length = 0
+const t5 = await 发温度消息('正常聊')
+断言('温度 0.5 不加行为提示', t5.r.ok === true && !/对话温度/.test(t5.文), t5)
+
+await 调('/dsh-wechat-bridge/save', { 温度: 1.4 })
+断言('温度封顶 1', 读配置().温度 === 1, 读配置().温度)
+await 调('/dsh-wechat-bridge/save', { 温度: -0.3 })
+断言('温度底 0', 读配置().温度 === 0, 读配置().温度)
+await 调('/dsh-wechat-bridge/save', { 温度: 0.37 })
+断言('温度按 0.1 取整', 读配置().温度 === 0.4, 读配置().温度)
+await 调('/dsh-wechat-bridge/save', { 温度: 'abc' })
+断言('温度非法回 0.5', 读配置().温度 === 0.5, 读配置().温度)
 
 console.log('\n日志尾巴：\n' + String(屏.日志 || '').split('\n').slice(-4).join('\n'))
