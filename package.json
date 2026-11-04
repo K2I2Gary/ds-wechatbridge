@@ -1,6 +1,6 @@
 {
   "name": "dsh-wechat-bridge",
-  "version": "1.9.5",
+  "version": "1.9.6",
   "description": "通到微信：DSH 里的 AI 伙伴和微信双向互通。读微信本地库收消息、UI 自动化发消息，支持人格画像与对话温度、收图看表情包、@ 语义与历史记忆检索（RAG）、群聊上下文与日记、主人权限、群回复频率。",
   "license": "MIT",
   "type": "module",

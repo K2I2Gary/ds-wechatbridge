@@ -37,6 +37,10 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 
 之后在微信里跟**文件传输助手**说话，就等于跟伙伴说话；别人的私聊、群里的话也会转进来。
 
+### 设置页结构（1.9.6）
+
+设置页分成六个模块：**连接与启动 / 接收与绑定 / 人格与说话 / 群聊与记忆 / 联网搜索（独立） / 测试与日志**。常用项直接露出，解释器、令牌、人格文件、看图、本地知识库等收在「高级」折叠区；保存按钮固定在顶部。完整线框图见 [docs/UI.md](docs/UI.md)。
+
 ## 不想装 Python？用自带的运行环境
 
 如果本仓库的 Release 里放了打好的 Python 3.12 运行环境（Windows x64，已经装好 `wechatauto-replica`、`uiautomation`、`numpy`、`zstandard`、`winsdk`、`Pillow`、`pywin32`、`comtypes` 等），可以直接用，不需要再联网装东西。
