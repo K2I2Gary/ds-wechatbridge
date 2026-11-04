@@ -115,6 +115,16 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 - 设置页「群聊与记忆」里可以调「检索条数 / 天数」，填 0 条 = 关
 - 群聊会排除掉已经作为「群上下文条数」带上的那几条，不重复
 
+## 本地知识库（local_search）
+
+桥接在后台建一个本地 SQLite（FTS5）库：`~/.dsh/wechat-bridge-memory.db`。
+
+- 微信历史：只索引「只听」里的聊天；启动时回填最近「本地库天数」（默认 180 天）/ 每聊最多「本地库每聊条数」（默认 500）条；之后新消息实时写入
+- 笔记：`~/.dsh/wechat-bridge-notes` 下的 `.md` / `.txt`，每 5 分钟扫一次；设置里可以改目录
+- 检索：中文按二元词切，FTS5 排序；宿主提供 `local_search` 工具
+- 工具参数：`{query, chat?, limit?}`；`chat` 可限定会话，`limit` 默认 8
+- 示例：把资料放进笔记目录，跟伙伴说「搜一下本地笔记：部署步骤」
+
 ## 表情包
 
 伙伴在回复里写 `[表情: 描述]`，插件会去 `dsh-meme` 的表情库里按 caption / 关键词找那张图，**当图片消息发到微信**，那串描述本身不会出现在正文里。
@@ -161,7 +171,16 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 
 - 这个值会作为采样 `temperature`，通过 agent 作用域的 `agent/request` 注入每次模型请求；同时每条消息带一句行为提示（0.5 不加）
 - 温度是**会话级**的：绑到微信的 agent 的所有模型请求都会用这个值
-- 0 的「主动」是对话内的主动（主动开话题 / 追问）；目前不会在没人说话时定时自动发消息
+- 0 / 0.1 的「主动」有两层：对话内主动开话题；以及下面的「主动搭话」在空闲到点时真的发一条
+
+### 主动搭话
+
+温度 ≤ 0.1 时，桥接会跑一个空闲计时器：
+
+- 超过「主动搭话分钟」（默认 30）没有新消息 → 让伙伴主动说一句，发回最近说话的微信聊天
+- 每个会话每小时最多「主动搭话每小时」次（默认 2，0 = 不限）
+- DSH 重启后会从「绑定」恢复最近聊天，不用先等一条新消息；会话不活着就跳过
+- 只在总开关开、桥接在跑时触发；试运行开着只记日志
 
 > 装到 DSH 后，把 `humanity.txt` 一起放到插件目录（`~/.dsh/profiles/desktop/node_modules/dsh-wechat-bridge/`），或者在设置页填它的绝对路径，或者放到 `~/.dsh/wechat-persona.txt`。
 
@@ -175,6 +194,9 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 | 人格文件 | 空 | 留空 = 插件目录 `humanity.txt` / `~/.dsh/wechat-persona.txt` |
 | 人格重提条数 | 10 | 每 N 条微信消息重新注入一次完整人设 |
 | 温度 | 0.5 | 0 = 主动发起话题，0.5 = 正常，1 = 被动但不沉默；步长 0.1 |
+| 主动搭话 | 开 | 温度 ≤ 0.1 时，空闲到点主动说一句 |
+| 主动搭话分钟 | 30 | 超过多少分钟没新消息触发 |
+| 主动搭话每小时 | 2 | 每小时最多几次；0 = 不限 |
 | 默认会话 | 空 | 微信来的消息进哪一间 |
 | 只听 | 空 | 只读这些会话（显示名 / wxid / `xxx@chatroom`，逗号或回车分隔）。留空 = 全部会话都听 |
 | 单独绑定 | 空 | 一个微信聊天 → 一间会话。聊天那边可填显示名，也可填 wxid / `xxx@chatroom`；「最近来找过的」里点一下就绑上默认会话 |
@@ -186,6 +208,11 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 | RAG | 开 | 收到消息时，在当前会话的历史里检索相关旧消息一起给模型 |
 | RAG条数 | 5 | 每次最多带几条；0 = 关 |
 | RAG天数 | 30 | 往回找多少天 |
+| 本地库 | 开 | 索引进微信历史 + 笔记，供 local_search 查 |
+| 本地库文件 | 空 | 留空 = `~/.dsh/wechat-bridge-memory.db` |
+| 笔记目录 | 空 | 留空 = `~/.dsh/wechat-bridge-notes` |
+| 本地库天数 | 180 | 回填多少天 |
+| 本地库每聊条数 | 500 | 每个聊天回填多少条 |
 | 群回复间隔秒 | 30 | |
 | 群每小时上限 | 6 | |
 | 群聊日记 | 开 | |
@@ -196,14 +223,15 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 
 ## 也可以直接说
 
-不想点设置页的话，跟伙伴说一句就行 —— 插件挂了两个工具：
+不想点设置页的话，跟伙伴说一句就行 —— 插件挂了三个工具：
 
 | 工具 | 参数 | 干什么 |
 | --- | --- | --- |
 | `wechat_block` | `{who, action: add / remove / list}` | 加/删/看「不回谁」名单 |
 | `wechat_bind` | `{chat, session, action}` | 把某个微信聊天接到某间会话；`session` 可以只报标题（如「主要聊天记忆」），它自己去找那一间 |
+| `local_search` | `{query, chat?, limit?}` | 搜本地微信历史 + 笔记 |
 
-例：「以后别理「拼多多」」「把「组队叫战狗」这个群接到主要聊天记忆那间」。
+例：「以后别理「拼多多」」「把「组队叫战狗」这个群接到主要聊天记忆那间」「搜一下本地笔记：部署步骤」。
 
 ## HTTP 接口
 
@@ -256,6 +284,7 @@ $env:DSH_HOME="$PWD\.testhome"; node _selftest.mjs         # 假 ctx 跑一遍�
 $env:DSH_HOME="$PWD\.testhome"; node _selftest_client.mjs  # 假 React 把设置页渲染一遍：加标签、点绑定、轮询不冲掉
 python -I _selftest_filter.py                              # 「只听」筛选纯函数
 python -I _selftest_rag.py                                 # @ 解析 + RAG 检索 + zstd 解压
+python -I _selftest_localdb.py                             # 本地知识库 FTS5 检索
 ```
 
 ## 致谢

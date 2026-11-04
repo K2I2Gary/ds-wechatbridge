@@ -145,6 +145,11 @@ const 文字 = 都(树).map((n) => 绳(n)).join(' | ')
 断言('有「历史记忆（RAG）」', 文字.includes('历史记忆（RAG）'), 文字.slice(0, 600))
 断言('有「人格画像」并显示已读路径', 文字.includes('人格画像') && 文字.includes('已读：'), 文字.slice(0, 900))
 断言('有「对话温度」且 0.5 显示正常', 文字.includes('对话温度') && 文字.includes('正常对话'), 文字.slice(0, 1200))
+断言(
+  '有「主动搭话」和「本地知识库」',
+  文字.includes('主动搭话') && 文字.includes('本地知识库'),
+  文字.slice(0, 1600),
+)
 断言('默认会话下拉选中了 session-aaa', !!都(树).find((n) => n.type === 'select' && n.props.value === 'session-aaa'), 都(树).filter((n) => n.type === 'select').map((n) => n.props.value))
 
 // 3 加一个「不回谁」
@@ -213,12 +218,12 @@ await 等()
 // 8.5 RAG 控件：默认开、条数/天数能改并保存
 const rag开关 = 都(树).find((n) => n.type === 'input' && n.props['data-wx-rag'])
 断言('RAG 开关默认开', !!rag开关 && rag开关.props.checked === true, rag开关 && rag开关.props.checked)
-const 条数框 = 都(树).find((n) => n.type === 'input' && n.props.type === 'number' && n.props.value === 5)
-const 天数框 = 都(树).find((n) => n.type === 'input' && n.props.type === 'number' && n.props.value === 30)
+const 条数框 = 都(树).find((n) => n.type === 'input' && n.props['data-wx-ragcount'])
+const 天数框 = 都(树).find((n) => n.type === 'input' && n.props['data-wx-ragdays'])
 断言('RAG 条数 / 天数输入框在', !!条数框 && !!天数框, 都(树).filter((n) => n.type === 'input' && n.props.type === 'number').map((n) => n.props.value))
 条数框.props.onChange({ target: { value: '7' } })
 树 = 重画()
-const 天数框2 = 都(树).find((n) => n.type === 'input' && n.props.type === 'number' && n.props.value === 30)
+const 天数框2 = 都(树).find((n) => n.type === 'input' && n.props['data-wx-ragdays'])
 天数框2.props.onChange({ target: { value: '14' } })
 树 = 重画()
 const 保存R = 找按钮(树, '保存设置')
@@ -280,6 +285,24 @@ await 等()
 await 等()
 树 = 重画()
 断言('温度 1 发出去了', 发出去.体.温度 === 1, 发出去 && 发出去.体)
+
+// 9.7 主动搭话 / 本地库开关
+const 主动勾 = 都(树).find((n) => n.type === 'input' && n.props['data-wx-proactive'])
+const 本地勾 = 都(树).find((n) => n.type === 'input' && n.props['data-wx-localkb'])
+断言('主动搭话 / 本地库开关在', !!主动勾 && !!本地勾, 都(树).filter((n) => n.type === 'input' && n.props.type === 'checkbox').length)
+主动勾.props.onChange({ target: { checked: false } })
+树 = 重画()
+都(树).find((n) => n.type === 'input' && n.props['data-wx-localkb']).props.onChange({ target: { checked: false } })
+树 = 重画()
+找按钮(树, '保存设置').props.onClick()
+await 等()
+await 等()
+树 = 重画()
+断言(
+  '主动搭话 / 本地库关掉发出去了',
+  发出去.体.主动搭话 === false && 发出去.体.本地库 === false,
+  发出去 && 发出去.体,
+)
 
 // 10 半截行：删掉聊天名，保存要被拦
 const 输入们 = 都(树).filter((n) => n.type === 'input' && n.props.value === '群A')

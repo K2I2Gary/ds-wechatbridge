@@ -1,8 +1,15 @@
-# dsh-wechat-bridge 1.4.1 发布说明
+# dsh-wechat-bridge 1.5.0 发布说明
 
-> 本版包含 1.3.8 的功能和 1.3.9–1.4.1 的启动与发送修复。桥接 venv 已补装 `zstandard`、`winsdk`。
+> 本版包含 1.3.8 的功能、1.3.9–1.4.1 的启动与发送修复，以及 1.5.0 的主动搭话和本地知识库。桥接 venv 已补装 `zstandard`、`winsdk`。
 >
 > 仓库：https://github.com/K2I2Gary/ds-wechatbridge
+
+## 1.5.0 新增
+
+- **温度 0 主动搭话**：温度 ≤ 0.1 时，空闲超过 N 分钟（默认 30）主动发一句到最近说话的微信聊天；每小时上限默认 2 次；DSH 重启后从绑定恢复最近聊天。
+- **本地知识库**：SQLite + FTS5，索引「只听」里的微信历史 + `~/.dsh/wechat-bridge-notes` 的 `.md/.txt`。
+- **`local_search` 工具**：模型可按需搜本地历史/笔记（`query`、`chat?`、`limit?`）。
+- 设置页加「本地知识库」和「主动搭话」配置。
 
 ## 1.4.1 修复
 

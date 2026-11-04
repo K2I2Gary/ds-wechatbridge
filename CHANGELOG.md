@@ -6,6 +6,13 @@
 
 - 2026-11-04：本仓库迁到 [K2I2Gary/ds-wechatbridge](https://github.com/K2I2Gary/ds-wechatbridge)，原 [thawline/dsh-wechat-bridge](https://github.com/thawline/dsh-wechat-bridge) 作为 upstream 保留。功能版本仍为 1.3.8。
 
+## 1.5.0
+
+- **温度 0 真的会主动开口**：温度 ≤ 0.1 时启动空闲计时器，超过「主动搭话分钟」（默认 30）没新消息，就通过 `speak-up` 让伙伴主动说一句，发回最近说话的微信聊天；每小时最多「主动搭话每小时」次（默认 2，0 = 不限）。DSH 重启后会从「绑定」恢复最近聊天，不用先等一条新消息。
+- **本地知识库（SQLite + FTS5）**：桥接在后台把「只听」里的微信历史 + `~/.dsh/wechat-bridge-notes` 里的 `.md/.txt` 索引进 `~/.dsh/wechat-bridge-memory.db`。支持 `本地库天数`（默认 180）和 `本地库每聊条数`（默认 500）控制回填量。
+- **`local_search` 工具**：模型可以按需搜本地微信历史/笔记（`query` 必填，`chat` 可选，`limit` 默认 8），用于回忆以前的聊天、找约定和资料。
+- 设置页加「本地知识库」：开关、笔记目录、库文件、回填天数/每聊条数；「人格画像」里加主动搭话开关和频率。
+
 ## 1.4.1
 
 - **发送不再卡死出站队列**：UIA 查询（`_取引擎` / `_清空输入框` / `current_chat` / `open_chat`）全部加超时；`send_msg` 超时改为按失败返回（以前返回字符串会被当成成功），失败后走 `_keyboard_send`（Ctrl+F 搜索→粘贴→回车）兜底。
