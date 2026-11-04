@@ -6,6 +6,14 @@
 
 - 2026-11-04：本仓库迁到 [K2I2Gary/ds-wechatbridge](https://github.com/K2I2Gary/ds-wechatbridge)，原 [thawline/dsh-wechat-bridge](https://github.com/thawline/dsh-wechat-bridge) 作为 upstream 保留。功能版本仍为 1.3.8。
 
+## 1.8.0
+
+- **网页抓取关键词**：独立联网搜索会抓每条结果的网页正文（限 1.5MB / 6 秒，4 个并发），从正文提取关键词，不再只看搜索摘要。
+- **每次搜索一组**：`search_groups` / `search_keywords` 表；独立区块按「一次搜索 = 一组」展示，可回看最近 5 组。
+- **关键词权重**：区块里每个关键词都有权重输入（0–10），可保存；权重会参与 `keyword_search` 的注意力排序（同词取各组的最大权重）。
+- **脚本也支持**：`web_search.py --list-groups`、`--set-weights <组> '<json>'`。
+- 保存的 markdown 里也会带上关键词和权重。
+
 ## 1.7.0
 
 - **独立联网搜索块**：设置页新增「四、联网搜索（独立）」，输入关键词直接搜，**不需要启动桥接**。结果可保存成本地 markdown，并写入本地库。

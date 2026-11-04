@@ -56,6 +56,13 @@ CREATE TRIGGER IF NOT EXISTS web_info_au AFTER UPDATE ON web_info BEGIN
   INSERT INTO web_info_fts(rowid, tokens, title, url, text)
   VALUES(new.id, new.tokens, new.title, new.url, new.text);
 END;
+CREATE TABLE IF NOT EXISTS search_groups(
+  id INTEGER PRIMARY KEY, query TEXT, ts REAL, results TEXT, keywords TEXT
+);
+CREATE TABLE IF NOT EXISTS search_keywords(
+  group_id INTEGER, keyword TEXT, weight REAL DEFAULT 1.0, count INTEGER DEFAULT 1,
+  PRIMARY KEY(group_id, keyword)
+);
 """
 
 
@@ -299,9 +306,30 @@ def web_ingest(db_path, query, search_url, key, limit=5):
 
 # ---------- 关键词注意力 ----------
 
-def _注意力排序(候选, query, top=5):
-    """关键词/注意力排序：重叠越多、来源越可信、越新，占比越高。"""
+def _关键词权重(con):
+    """读取独立搜索区块里设置的关键词权重（同词取最大值）。"""
+    out = {}
+    try:
+        for r in con.execute(
+            "SELECT keyword, weight FROM search_keywords ORDER BY group_id DESC LIMIT 500"
+        ):
+            k = str(r["keyword"] or "").strip()
+            if not k:
+                continue
+            try:
+                w = float(r["weight"] if r["weight"] is not None else 1.0)
+            except Exception:
+                w = 1.0
+            out[k] = max(out.get(k, 0.0), w)
+    except Exception:
+        pass
+    return out
+
+
+def _注意力排序(候选, query, top=5, 权重=None):
+    """关键词/注意力排序：重叠越多、权重越高、来源越可信、越新，占比越高。"""
     q = set(分词(query))
+    权 = 权重 or {}
     now = time.time()
     打分 = []
     for c in 候选:
@@ -314,7 +342,8 @@ def _注意力排序(候选, query, top=5):
         age = max(0.0, now - float(c.get("ts") or now))
         新近 = math.exp(-age / (30 * 86400))
         密度 = (len(overlap) / (len(toks) ** 0.5)) if toks else 0.0
-        score = len(overlap) * 2.0 + 密度 + 来源 + 0.3 * 新近
+        重叠分 = sum(权.get(t, 1.0) for t in overlap)
+        score = 重叠分 * 2.0 + 密度 + 来源 + 0.3 * 新近
         kw = ""
         if overlap:
             kw = max(overlap, key=lambda t: (text.count(t), len(t), t))
@@ -419,8 +448,9 @@ def 关键词检索(db_path, query, chat="", top=5, web=False, search_url="", ke
     except sqlite3.OperationalError:
         pass
 
+    词权 = _关键词权重(con)
     con.close()
-    items = _注意力排序(候选, query, top)
+    items = _注意力排序(候选, query, top, 词权)
     out = {"ok": True, "items": items}
     if web_msg:
         out["说"] = web_msg

@@ -158,6 +158,34 @@ with tempfile.TemporaryDirectory() as d:
         body = open(saved, encoding='utf-8').read()
         断言('保存内容包含查询和结果', '海风与灯塔' in body and '测试标题' in body, body[:200])
 
+    # 网页抓取关键词 + 每次搜索一组 + 权重
+    原抓 = ws._抓网页
+    ws._抓网页 = lambda url: "海风 灯塔 海风 灯塔 帆船 帆船"
+    try:
+        搜索组 = [{"title": "T", "url": "https://x", "content": "摘要"}]
+        关键词 = ws._网页关键词(搜索组, True)
+    finally:
+        ws._抓网页 = 原抓
+    断言('网页正文提取出关键词', any(k['keyword'] == '海风' for k in 关键词), 关键词)
+    断言('网页关键词有默认权重', all(k['weight'] >= 0.5 for k in 关键词), 关键词)
+
+    gid = ws._存组(db, '海风组', 搜索组, 关键词)
+    断言('每次搜索存成一组', isinstance(gid, int) and gid > 0, gid)
+    组 = ws._列组(db, 1)
+    断言(
+        '能列出搜索组',
+        组['ok'] and 组['groups'] and 组['groups'][0]['id'] == gid,
+        组,
+    )
+    更新 = ws._设权重(db, gid, {'海风': 3.5})
+    断言('权重能更新', 更新['ok'], 更新)
+    组 = ws._列组(db, 1)
+    权 = {k['keyword']: k['weight'] for k in 组['groups'][0]['keywords']}
+    断言('权重读回来是 3.5', 权.get('海风') == 3.5, 权)
+
+    排序 = ls.关键词检索(db, '海风', top=5)
+    断言('带权重的关键词检索可用', 排序['ok'] and 排序['items'], 排序)
+
 if 失败:
     print('\n%d 条没过：%s' % (len(失败), '、'.join(失败)))
     sys.exit(1)

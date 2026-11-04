@@ -122,7 +122,7 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 - 微信历史：只索引「只听」里的聊天；启动时回填最近「本地库天数」（默认 180 天）/ 每聊最多「本地库每聊条数」（默认 500）条；之后新消息实时写入
 - 笔记：`~/.dsh/wechat-bridge-notes` 下的 `.md` / `.txt`，每 5 分钟扫一次；设置里可以改目录
 - 检索：中文按二元词切，FTS5 排序；宿主提供 `local_search` 工具
-- **关键词注意力**：`keyword_search` 把微信/笔记/联网结果按「关键词重叠 + 来源权重 + 时间衰减」打分，softmax 归一化成占比，从高到低最多返回 5 条
+- **关键词注意力**：`keyword_search` 把微信/笔记/联网结果按「关键词重叠 × 权重 + 来源权重 + 时间衰减」打分，softmax 归一化成占比，从高到低最多返回 5 条；权重来自独立搜索区块里设置的关键词（同词取最大）
 - **联网入库**：`keyword_search` 的 `web=true`（或设置里开着「联网搜索」时默认）会调 Tavily / DuckDuckGo，把标题和摘要写进 `web_info` 表，之后本地搜索也能命中
 - 工具参数：`local_search {query, chat?, limit?}`；`keyword_search {query, chat?, web?, limit?}`
 - 示例：把资料放进笔记目录，跟伙伴说「搜一下本地笔记：部署步骤」「联网搜一下最近的 XX，存进本地库」
@@ -131,13 +131,18 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 
 设置页「四、联网搜索（独立）」里直接输入关键词搜索，**不依赖桥接进程**：
 
-- 搜索后保存成 markdown：`~/.dsh/wechat-bridge-notes/web/<时间>-<关键词>.md`
-- 同时写入 `web_info` 表（如果本地库开着）；下次 `local_search` / `keyword_search` 能命中
-- 模型有独立的 `web_search` 工具：`{query, limit?, save?}`
+- 默认会**抓每条结果的网页正文**（限 1.5MB / 6 秒，4 个并发），从正文提取关键词；不想抓可以关掉「抓网页关键词」
+- **每次搜索存成一组**（最近 5 组）；组里有关键词、出现次数、权重和结果
+- 每个关键词都可以调**权重（0–10）**；权重会参与 `keyword_search` 的注意力排序
+- 搜索后保存成 markdown：`~/.dsh/wechat-bridge-notes/web/<时间>-<关键词>.md`（文件里带关键词和权重）
+- 同时写入 `web_info` / `search_groups` / `search_keywords` 表；下次 `local_search` / `keyword_search` 能命中
+- 模型有独立的 `web_search` 工具：`{query, limit?, save?, fetch?}`
 - 也可以不开 DSH，直接跑：
 
 ```powershell
 python bridge/web_search.py "DeepSeek 最近发布" --limit 5
+python bridge/web_search.py --list-groups --db ~/.dsh/wechat-bridge-memory.db
+python bridge/web_search.py --set-weights 1 '{"deepseek": 3.5}' --db ~/.dsh/wechat-bridge-memory.db
 ```
 
 - 搜索接口：Tavily（设置里填密钥）；没密钥退 DuckDuckGo HTML

@@ -777,6 +777,13 @@ def main():
           INSERT INTO web_info_fts(rowid, tokens, title, url, text)
           VALUES(new.id, new.tokens, new.title, new.url, new.text);
         END;
+        CREATE TABLE IF NOT EXISTS search_groups(
+          id INTEGER PRIMARY KEY, query TEXT, ts REAL, results TEXT, keywords TEXT
+        );
+        CREATE TABLE IF NOT EXISTS search_keywords(
+          group_id INTEGER, keyword TEXT, weight REAL DEFAULT 1.0, count INTEGER DEFAULT 1,
+          PRIMARY KEY(group_id, keyword)
+        );
         """)
 
     def _本地库连接():

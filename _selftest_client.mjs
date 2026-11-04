@@ -75,6 +75,9 @@ let 服务器 = {
 let 发出去 = null
 let 拉了几次 = 0
 globalThis.fetch = async (url, opt) => {
+  if (String(url).includes('/web-search/groups')) {
+    return { json: async () => ({ ok: true, groups: [] }) }
+  }
   if (String(url).endsWith('/state')) {
     拉了几次 += 1
     return { json: async () => 服务器 }
@@ -152,6 +155,11 @@ const 文字 = 都(树).map((n) => 绳(n)).join(' | ')
 )
 断言('有「联网搜索」配置', 文字.includes('联网搜索'), 文字.slice(0, 2000))
 断言('有独立的「联网搜索」区块', 文字.includes('联网搜索（独立）'), 文字.slice(0, 2500))
+断言(
+  '独立搜索块提到关键词权重/每次一组',
+  文字.includes('关键词权重') && 文字.includes('每次搜索存成一组'),
+  文字.slice(0, 3000),
+)
 断言('默认会话下拉选中了 session-aaa', !!都(树).find((n) => n.type === 'select' && n.props.value === 'session-aaa'), 都(树).filter((n) => n.type === 'select').map((n) => n.props.value))
 
 // 3 加一个「不回谁」
