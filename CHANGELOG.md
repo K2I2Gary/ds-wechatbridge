@@ -6,6 +6,16 @@
 
 - 2026-11-04：本仓库迁到 [K2I2Gary/ds-wechatbridge](https://github.com/K2I2Gary/ds-wechatbridge)，原 [thawline/dsh-wechat-bridge](https://github.com/thawline/dsh-wechat-bridge) 作为 upstream 保留。功能版本仍为 1.3.8。
 
+## 1.9.9
+
+- **新增 `wechat_send_image` 工具**：伙伴可以把图片发到微信。
+  - `path` 用本地图片（png / jpg / gif / webp / bmp）；
+  - `url` 先下载再发，默认存到 `~/.dsh/wechat-bridge-downloads`，可用 `目录` 指定工作区路径；
+  - `chat` / `text` 可选；`只保存: true` 只下载 / 检查，不发；
+  - 不给 `chat` 时发到最近说话的聊天。
+- **收到图片时把本地路径带进对话**：消息里会附「（图片文件：…）」，模型可以直接转发、另存或再用 `wechat_send_image` 发出去。
+- 本地文件发图只接受常见图片后缀；URL 会校验 `content-type` / 后缀，限制 30MB。
+
 ## 1.9.8
 
 - **拆条发送不再吞后半句**：一段发送失败时，以前直接 `return`，后面的句子就永远不发了；现在记下失败段、继续发下一段，最后如实报告「已发 N 段 / 有 M 段没出去」。

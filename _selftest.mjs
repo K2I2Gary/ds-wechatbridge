@@ -92,7 +92,8 @@ const 断言 = (名, 条件, 细节) => {
 }
 
 // 1 路由与工具都挂上了
-断言('注册了 5 个工具', 工具.length === 5, 工具.map((t) => t.name))
+断言('注册了 6 个工具', 工具.length === 6, 工具.map((t) => t.name))
+断言('wechat_send_image 工具挂上了', 工具.some((t) => t.name === 'wechat_send_image'), 工具.map((t) => t.name))
 断言('local_search 工具挂上了', 工具.some((t) => t.name === 'local_search'), 工具.map((t) => t.name))
 断言('keyword_search 工具挂上了', 工具.some((t) => t.name === 'keyword_search'), 工具.map((t) => t.name))
 断言('web_search 工具挂上了', 工具.some((t) => t.name === 'web_search'), 工具.map((t) => t.name))
@@ -411,6 +412,19 @@ const 配K = 读配置()
   '联网搜索配置落盘',
   配K.联网搜索 === false && 配K.搜索条数 === 3 && 配K.关键词条数 === 4,
   配K,
+)
+
+// 18 发图工具：本地文件能进发件队列
+const 发图工具 = 工具.find((t) => t.name === 'wechat_send_image')
+const 图路径 = join(家, 'selftest.png')
+writeFileSync(图路径, Buffer.from('89504e470d0a1a0a', 'hex'))
+const 图果 = await 发图工具.execute({ path: 图路径, chat: '群A', text: '看图' })
+断言('发图工具接受本地文件', 图果 && 图果.ok, 图果)
+const 发件 = await 调('/dsh-wechat-bridge/outbox', {})
+断言(
+  '发图工具把图片压进了发件队列',
+  (发件.消息 || []).some((x) => (x.images || []).includes(图路径) && x.chat === '群A'),
+  发件,
 )
 
 console.log('\n日志尾巴：\n' + String(屏.日志 || '').split('\n').slice(-4).join('\n'))

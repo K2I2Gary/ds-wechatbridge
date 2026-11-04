@@ -1,4 +1,15 @@
-# dsh-wechat-bridge 1.9.8 发布说明
+# dsh-wechat-bridge 1.9.9 发布说明
+
+> 1.9.9：伙伴可以用 `wechat_send_image` 发图片；收到图片时对话里会带本地文件路径。
+
+## 1.9.9 新增
+
+- `wechat_send_image`：`path` 发本地图片，`url` 先下载再发；`chat` / `text` 可选，`只保存` 只下载不发。
+- 下载默认存到 `~/.dsh/wechat-bridge-downloads`，`目录` 参数可以指定工作区路径。
+- 微信收到的图片会在消息里附上落盘路径（`~/.dsh/wechat-inbound/`），可直接转发或另存。
+- 图片格式：png / jpg / gif / webp / bmp；URL 校验 content-type，单张上限 30MB。
+
+# 1.9.8 发布说明
 
 > 1.9.8：修复拆条发送吞后半句、超时重试重复发送、锁屏误操作窗口。
 

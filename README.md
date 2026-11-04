@@ -41,6 +41,15 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 
 设置页分成六个模块：**连接与启动 / 接收与绑定 / 人格与说话 / 群聊与记忆 / 联网搜索（独立） / 测试与日志**。常用项直接露出，解释器、令牌、人格文件、看图、本地知识库等收在「高级」折叠区；保存按钮固定在顶部。「群聊与记忆 → 清除上下文记忆」可以按聊天清除或清空全部本地记忆（RAG / 笔记 / 联网摘要）。完整线框图见 [docs/UI.md](docs/UI.md)。
 
+## 发图 / 收图
+
+- **收图**：微信里收到的图片 / 表情包会落到 `~/.dsh/wechat-inbound/`（`images/`、`stickers/`），视觉模型先描述一遍；转进对话的消息里会带上本地文件路径，伙伴可以直接转发或另存到工作区。
+- **发图**：伙伴可以调用 `wechat_send_image` 工具：
+  - `path`：本地图片（png / jpg / gif / webp / bmp）
+  - `url`：先下载再发；默认存到 `~/.dsh/wechat-bridge-downloads`，传 `目录` 可以指定工作区路径
+  - `chat` / `text` 可选；`只保存: true` 只下载 / 检查，不发微信
+- 也可以在回复里直接写 Markdown：`![图](C:\path\a.png)` 或本机 HTTP 图（`http://127.0.0.1:端口/...`），桥接会把它摘出来发成真正的图片。
+
 ## 不想装 Python？用自带的运行环境
 
 如果本仓库的 Release 里放了打好的 Python 3.12 运行环境（Windows x64，已经装好 `wechatauto-replica`、`uiautomation`、`numpy`、`zstandard`、`winsdk`、`Pillow`、`pywin32`、`comtypes` 等），可以直接用，不需要再联网装东西。
