@@ -1,6 +1,6 @@
 # 通到微信（dsh-wechat-bridge）
 
-> **这是修改版**：上游是 [Yuuyuko-uu/dsh-wechat-bridge](https://github.com/Yuuyuko-uu/dsh-wechat-bridge)（作者 Yuuyuko-uu，MIT），中间经过 [thawline/dsh-wechat-bridge](https://github.com/thawline/dsh-wechat-bridge) 的实用化修改。本仓库（[K2I2Gary/ds-wechatbridge](https://github.com/K2I2Gary/ds-wechatbridge)）基于 1.3.4 持续维护到 **1.9.8**：从 1.3.5–1.3.8 的实用化改动，到后续的发送可靠性（拆条/去重/锁屏）、多会话主动搭话、中英文版兼容、设置页重排、本地记忆管理。完整版本清单见 [CHANGELOG.md](CHANGELOG.md)，功能概览见文末「相对原版的改动」。
+> **这是修改版**：上游是 [Yuuyuko-uu/dsh-wechat-bridge](https://github.com/Yuuyuko-uu/dsh-wechat-bridge)（作者 Yuuyuko-uu，MIT），中间经过 [thawline/dsh-wechat-bridge](https://github.com/thawline/dsh-wechat-bridge) 的实用化修改。本仓库（[K2I2Gary/ds-wechatbridge](https://github.com/K2I2Gary/ds-wechatbridge)）基于 1.3.4 持续维护到 **1.13.4**：从发送可靠性（拆条/去重/锁屏）、多会话主动搭话、中英文版兼容、设置页重排、本地记忆，到图片记忆 / 本地表情库，以及大肥鱼表情包（`dsh-nekowhale-stickers`）接入。完整版本清单见 [CHANGELOG.md](CHANGELOG.md)，功能概览见文末「相对原版的改动」。
 
 让 DSH 里的 AI 伙伴和微信双向聊天：**你在微信里发的话转进 DSH，伙伴说完一整轮，最后一句（和表情包图片）发回微信。**
 
@@ -37,15 +37,16 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 
 之后在微信里跟**文件传输助手**说话，就等于跟伙伴说话；别人的私聊、群里的话也会转进来。
 
-### 设置页结构（1.9.6+）
+### 设置页结构（1.13.4）
 
-设置页分成六个模块：**连接与启动 / 接收与绑定 / 人格与说话 / 群聊与记忆 / 联网搜索（独立） / 测试与日志**。常用项直接露出，解释器、令牌、人格文件、看图、本地知识库等收在「高级」折叠区；保存按钮固定在顶部。「群聊与记忆 → 清除上下文记忆」可以按聊天清除或清空全部本地记忆（RAG / 笔记 / 联网摘要）。完整线框图见 [docs/UI.md](docs/UI.md)。
+设置页分成七个模块：**连接与启动 / 接收与绑定 / 人格与说话 / 群聊与记忆 / 图片管理 / 联网搜索（独立） / 测试与日志**。常用项直接露出，解释器、令牌、人格文件、看图、本地知识库等收在「高级」折叠区；保存按钮固定在顶部。「群聊与记忆 → 清除上下文记忆」可以按聊天清除或清空全部本地记忆（RAG / 笔记 / 联网摘要）。完整线框图见 [docs/UI.md](docs/UI.md)。
 
 ## 发图 / 收图
 
 - **收图**：微信里收到的图片 / 表情包会落到 `~/.dsh/wechat-inbound/`（`images/`、`stickers/`），视觉模型先描述一遍；同时复制一份到当前会话工作区的 `wechat-images/`。转进对话的消息里会带上工作区路径和 id，伙伴可以直接转发或另存。
 - **图片记忆**：每张收到的图都会把「描述 / 工作区文件 / 原文件 / 聊天 / 发送人 / 时间」写进 `~/.dsh/wechat-image-memory.json`（最近 500 条）。之后可以用 `wechat_image_memory` 按描述、聊天或 id 查回来。
-- **图片管理**：设置页「图片管理」里可以看缩略图 / 描述 / 来源，单张删除或清空全部；删除会同时删工作区副本、`wechat-inbound` 原文件和 JSON 记录。GIF 在预览里会动，但发到微信时受剪贴板位图限制只发第一帧。
+- **表情库字段**：表情包会额外存情绪、标签、内容指纹、使用次数、最近发送、别名和启用状态；同一张图换文件名只存一条，旧文件名进「别名」；2 分钟内同一聊天不重复推荐 / 发送。
+- **图片管理**：设置页「图片管理」可以按 全部 / 表情包 / 图片 筛选，看缩略图 / 描述 / 情绪标签 / 使用次数；支持单张删除、清空全部、停用 / 启用，以及手动改描述、情绪、标签。删除会同时删工作区副本、`wechat-inbound` 原文件和 JSON 记录。GIF 在预览里会动，但发到微信时受剪贴板位图限制只发第一帧。
 - **`.wxgf`（微信 4.x HEVC 图片 / 动画表情容器）**：内嵌 `imageio-ffmpeg`（装依赖时一起装），收到 wxgf 会自动转 PNG；视觉模型能读、图片管理能预览、也能发出去。旧的 wxgf 第一次预览 / 发送时按需转换，缓存在原文件旁边（`同名.png`）。也可以用 `wechat_read_image` 工具让模型单独读一张图（支持 wxgf）。
 - **发图**：伙伴可以调用 `wechat_send_image` 工具：
   - `path`：本地图片（png / jpg / gif / webp / bmp）
@@ -60,7 +61,7 @@ dsh plugin --profile desktop add github:K2I2Gary/ds-wechatbridge
 
 - **图片倾向**滑杆 0 – 1：
   - 0 = 文字优先；0.5 = 图文均衡；1 = 尽量用图片回答
-  - 会以 `system-reminder` 注入每一轮微信对话和主动搭话，告诉模型先找图 / 发图（`wechat_image_memory` + `wechat_send_image`），再配简短文字
+  - 会以 `system-reminder` 注入每一轮微信对话和主动搭话：装了 `dsh-nekowhale-stickers` 时优先 `sticker_search` / `sticker_send` 挑大肥鱼表情；想用微信里收到的表情就用 `wechat_sticker_search` + `wechat_send_image`；都没有再考虑 `wechat_image_memory` 或 url 下载
 - **语言微调**输入框：自定义说话风格，例如「回答更短」「多用比喻」「少用感叹号」。每轮注入，只影响风格，不改变事实、工具权限和安全规则。
 
 两个值都走「保存设置」，桥接 30 秒内认。
@@ -276,6 +277,8 @@ dsh plugin --profile desktop add dsh-nekowhale-stickers
 | 人格文件 | 空 | 留空 = 插件目录 `humanity.txt` / `~/.dsh/wechat-persona.txt` |
 | 人格重提条数 | 10 | 每 N 条微信消息重新注入一次完整人设 |
 | 温度 | 0.5 | 0 = 主动发起话题，0.5 = 正常，1 = 被动但不沉默；步长 0.1 |
+| 图片倾向 | 0.3 | 0 = 文字优先，0.5 = 图文均衡，1 = 尽量用图片；每轮注入选图提示 |
+| 语言微调 | 空 | 自定义说话风格，每轮注入 |
 | 主动搭话 | 开 | 温度 ≤ 0.1 时，空闲到点主动说一句 |
 | 主动搭话分钟 | 30 | 超过多少分钟没新消息触发 |
 | 主动搭话每小时 | 2 | 每小时最多几次；0 = 不限 |
@@ -284,6 +287,10 @@ dsh plugin --profile desktop add dsh-nekowhale-stickers
 | 单独绑定 | 空 | 一个微信聊天 → 一间会话。聊天那边可填显示名，也可填 wxid / `xxx@chatroom`；「最近来找过的」里点一下就绑上默认会话 |
 | 接口令牌 | 空 | Python 侧请求要带的口令，留空不校验 |
 | 解释器 | 空 | 一个装好 `wechatauto-replica` 的 `python.exe`，填了就不用建 venv |
+| 微信语言 | 自动 | 自动 / 中文 / 英文；控件名对不上时手动锁定 |
+| 看图 | 开 | 收到图片时用视觉模型写描述 |
+| 视觉密钥 / 模型 / 地址 | 空 / deepseek-flash / api.deepseek.com | 高级；可再配一套备用（智谱 glm-4v-flash） |
+| 价_缓存读 / 价_输入 / 价_输出 | 空 | 用量账本的单价（可选；空 = 只记 token 不算钱） |
 | 主人 | 空 | wxid 或昵称，逗号分隔 |
 | 外人只能聊天 | 开 | 见上面「权限」 |
 | 群上下文条数 | 6 | |
@@ -310,7 +317,7 @@ dsh plugin --profile desktop add dsh-nekowhale-stickers
 
 ## 也可以直接说
 
-不想点设置页的话，跟伙伴说一句就行 —— 插件挂了五个工具：
+不想点设置页的话，跟伙伴说一句就行 —— 插件挂了九个工具：
 
 | 工具 | 参数 | 干什么 |
 | --- | --- | --- |
@@ -335,13 +342,26 @@ dsh plugin --profile desktop add dsh-nekowhale-stickers
 | GET | `/dsh-wechat-bridge/outbox` | 发：取走待发队列 |
 | POST | `/dsh-wechat-bridge/outbox/ack` | 发完回报 |
 | GET | `/dsh-wechat-bridge/state` | 状态、配置、会话、日志 |
+| GET | `/dsh-wechat-bridge/memory` | 本地记忆统计：消息 / 笔记 / 联网条数、按聊天分布 |
+| POST | `/dsh-wechat-bridge/memory/clear` | 清本地记忆：`{范围: all / chat / notes / web, 聊天?}` |
+| GET | `/dsh-wechat-bridge/images` | 图片 / 表情库列表（含情绪、标签、使用次数、是否存在） |
+| POST | `/dsh-wechat-bridge/images/delete` | 删图：`{id}` 或 `{全部: true}`，连文件带 JSON 记录一起删 |
+| POST | `/dsh-wechat-bridge/images/meta` | 改描述 / 情绪 / 标签：`{id, 描述?, 情绪?, 标签?}` |
+| POST | `/dsh-wechat-bridge/images/toggle` | 停用 / 启用表情：`{id}` |
+| GET | `/dsh-wechat-bridge/image?path=…` | 预览图片（只允许图片记忆里登记过的路径；wxgf 按需转 PNG） |
 | POST | `/dsh-wechat-bridge/save` | 存配置 |
 | POST | `/dsh-wechat-bridge/test-send` | 真发一条测试句 |
+| POST | `/dsh-wechat-bridge/send` | 手动发到指定聊天 |
+| POST | `/dsh-wechat-bridge/test-inbound` | 灌一条测试消息进会话 |
 | POST | `/dsh-wechat-bridge/vision-test` | 试看一张本地图片：`{图片, 类型?}` |
-| POST | `/dsh-wechat-bridge/web-search` | 独立联网搜索：`{query, limit?, save?}`；不需要桥接在跑 |
-| POST | `/dsh-wechat-bridge/speak-now` | 立即让她主动说一句：`{chat?}`；需要桥接在跑、会话活着 |
+| GET | `/dsh-wechat-bridge/check-update` | 检查 GitHub 版本 |
+| POST | `/dsh-wechat-bridge/web-search` | 独立联网搜索：`{query, limit?, save?, fetch?}`；不需要桥接在跑 |
+| GET | `/dsh-wechat-bridge/web-search/groups` | 最近搜索组 |
+| POST | `/dsh-wechat-bridge/web-search/weights` | 保存某组关键词权重 |
+| GET/POST | `/dsh-wechat-bridge/bridge/status` | 桥接状态 |
 | POST | `/dsh-wechat-bridge/bridge/install` | 装依赖 |
 | POST | `/dsh-wechat-bridge/bridge/start` / `stop` | 起停桥接 |
+| POST | `/dsh-wechat-bridge/speak-now` | 立即让她主动说一句：`{chat?}`；需要桥接在跑、会话活着 |
 
 ## 边界与风险
 
@@ -374,15 +394,17 @@ dsh plugin --profile desktop add dsh-nekowhale-stickers
 - **窗口在屏幕外/托盘时**：先 `SW_SHOW` + `SW_RESTORE` + wechatauto `ensure_visible`；仍在屏幕外就 `MoveWindow` 挪到可见位置。键盘兜底会先确认微信在前台，拿不到前台就放弃，避免把会话名粘进聊天框。
 - **发送窗口兼容 / 还原**：窗口标题同时认 `微信` 和 `WeChat`；最小化或收托盘时先还原再发，发完按原状态收回，避免点击落到别的窗口。
 - **`winsdk` 兜底**：补上 OCR 兜底依赖，避免 `open_chat` / 发送报 `No module named 'winsdk'`。
-- **人格画像、@ 语义、历史记忆（RAG）**：见上面相应章节。
+- **图片记忆 / 本地表情库**：收到的图带描述落 JSON；表情包再补情绪、标签、指纹、使用次数和别名，支持按情绪检索、去重、2 分钟冷却和停用。设置页可以筛选、改标签、删图。
+- **大肥鱼表情包接入**：装 `dsh-nekowhale-stickers` 后，`sticker_send` 返回的本机 Markdown 图会被摘出来下载并发到微信；本工具改名 `wechat_sticker_search` 避免重名。
+- **人格画像、@ 语义、历史记忆（RAG）、本地知识库、独立联网搜索、主动搭话**：见上面相应章节。
 
 ## 开发自测
 
-改了 `lib/host.js` 或 `lib/client.js` 之后，两个脚本可以直接跑（不用开 DSH，也不碰真实配置 —— 记得把 `DSH_HOME` 指到临时目录）：
+改完之后，下面这些脚本可以直接跑（不用开 DSH，也不碰真实配置 —— 记得把 `DSH_HOME` 指到临时目录）：
 
 ```powershell
-$env:DSH_HOME="$PWD\.testhome"; node _selftest.mjs         # 假 ctx 跑一遍宿主：保存 / 绑定 / 屏蔽 / 人格 / 两个工具
-$env:DSH_HOME="$PWD\.testhome"; node _selftest_client.mjs  # 假 React 把设置页渲染一遍：加标签、点绑定、轮询不冲掉
+$env:DSH_HOME="$PWD\.testhome"; node _selftest.mjs         # 假 ctx 跑一遍宿主：保存 / 绑定 / 屏蔽 / 人格 / 图片 / 表情库 / 工具
+$env:DSH_HOME="$PWD\.testhome"; node _selftest_client.mjs  # 假 React 把设置页渲染一遍：绑定 / 屏蔽 / 图片筛选 / 改标签
 python -I _selftest_filter.py                              # 「只听」筛选纯函数
 python -I _selftest_rag.py                                 # @ 解析 + RAG 检索 + zstd 解压
 python -I _selftest_localdb.py                             # 本地知识库 FTS5 检索
@@ -392,6 +414,7 @@ python -I _selftest_sticker.py                             # 本地表情库读�
 ## 致谢
 
 - [`wechatauto-replica`](https://github.com/fanyuantaier/wechatauto-replica) —— 读库解密 + UIA 发送的底座
+- [`dsh-nekowhale-stickers`](https://github.com/Loping151/dsh-nekowhale-stickers) —— 大肥鱼 / GPT娘 表情包；素材作者 B站 [可以叫我云大人](https://space.bilibili.com/103739)，[kiriyuki.com](https://kiriyuki.com) 制作（Apache-2.0 AND CC BY-NC 4.0）
 
 ## License
 
