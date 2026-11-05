@@ -95,6 +95,14 @@ globalThis.fetch = async (url, opt) => {
       }),
     }
   }
+  if (String(url).endsWith('/images/meta')) {
+    发出去 = { url, 体: JSON.parse((opt && opt.body) || '{}') }
+    return { json: async () => ({ ok: true, 说: '标签已保存' }) }
+  }
+  if (String(url).endsWith('/images/toggle')) {
+    发出去 = { url, 体: JSON.parse((opt && opt.body) || '{}') }
+    return { json: async () => ({ ok: true, 说: '已停用', 启用: false }) }
+  }
   if (String(url).endsWith('/images')) {
     return {
       json: async () => ({
@@ -103,6 +111,11 @@ globalThis.fetch = async (url, opt) => {
           {
             id: 'p1',
             描述: '雪地里的小女孩',
+            类型: '表情包',
+            情绪: ['无语', '摆烂'],
+            标签: ['雪'],
+            启用: true,
+            用了几次: 2,
             聊天: 'k2',
             发送人: 'k2',
             时间: '21:00',
@@ -436,10 +449,53 @@ await 等()
   发出去,
 )
 
-// 12 图片管理：列表 + 删除
+// 12 图片管理：列表 + 筛选 + 停用 + 删除
 const 图文字 = 都(树).map((n) => 绳(n)).join(' | ')
 断言('有「图片管理」区块', 图文字.includes('图片管理'), 图文字.slice(-1200))
 断言('显示图片描述', 图文字.includes('雪地里的小女孩'), 图文字.slice(-1200))
+断言(
+  '显示情绪标签和使用次数',
+  图文字.includes('无语') && 图文字.includes('摆烂') && 图文字.includes('用过 2 次'),
+  图文字.slice(-1200),
+)
+断言(
+  '有表情包 / 图片筛选按钮',
+  都(树).some((n) => n.type === 'button' && n.props['data-wx-imgfilter'] === '表情包'),
+  都(树).filter((n) => n.type === 'button').map(绳),
+)
+const 编辑按钮 = 都(树).find((n) => n.type === 'button' && n.props['data-wx-imgedit'] === 'p1')
+断言('图片有编辑按钮', !!编辑按钮, 都(树).filter((n) => n.type === 'button').map(绳))
+编辑按钮.props.onClick()
+树 = 重画()
+const 情绪输入 = 都(树).find((n) => n.type === 'input' && n.props['data-wx-imgmeta'] === '情绪')
+断言('点编辑后出现情绪输入框', !!情绪输入, 都(树).filter((n) => n.type === 'input').map((n) => n.props['data-wx-imgmeta']))
+情绪输入.props.onChange({ target: { value: '无语 嘲讽' } })
+树 = 重画()
+const 存标签按钮 = 都(树).find((n) => n.type === 'button' && n.props['data-wx-imgmetasave'] === '1')
+断言('编辑时有保存按钮', !!存标签按钮, 都(树).filter((n) => n.type === 'button').map(绳))
+存标签按钮.props.onClick()
+await 等()
+await 等()
+树 = 重画()
+断言(
+  '保存标签请求发出了',
+  !!发出去
+    && String(发出去.url).endsWith('/images/meta')
+    && 发出去.体.id === 'p1'
+    && 发出去.体.情绪 === '无语 嘲讽',
+  发出去,
+)
+const 停用按钮 = 都(树).find((n) => n.type === 'button' && n.props['data-wx-imgtoggle'] === 'p1')
+断言('表情包有停用按钮', !!停用按钮, 都(树).filter((n) => n.type === 'button').map(绳))
+停用按钮.props.onClick()
+await 等()
+await 等()
+树 = 重画()
+断言(
+  '停用表情请求发出了',
+  !!发出去 && String(发出去.url).endsWith('/images/toggle') && 发出去.体.id === 'p1',
+  发出去,
+)
 const 删图按钮 = 都(树).find((n) => n.type === 'button' && n.props['data-wx-imgdel'] === 'p1')
 断言('图片有删除按钮', !!删图按钮, 都(树).filter((n) => n.type === 'button').map(绳))
 删图按钮.props.onClick()

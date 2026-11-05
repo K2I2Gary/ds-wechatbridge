@@ -558,6 +558,7 @@ def parse_args():
     p.add_argument("--memory-chat", default="", help="配合 --memory-clear chat：只清这个聊天")
     p.add_argument("--memory-db", default="", help="本地记忆库路径（默认从配置/DSH_HOME 找）")
     p.add_argument("--wxgf-convert", default="", help="把 .wxgf 转成 PNG，打印 JSON 路径后退出")
+    p.add_argument("--meme-test", default="", help="加载表情库并匹配一个描述，打印 JSON 后退出（自测用）")
     a = p.parse_args()
 
     DSH = str(a.dsh).rstrip("/")
@@ -777,6 +778,197 @@ def http_json(path, payload=None, method=None, timeout=20):
         return {"ok": False, "说": str(e)}
 
 
+# ---------- 表情包：正文里的 [表情: 描述] 变成真图片 ----------
+
+# 和前端配图器（dsh-meme client.js 的 matchDesc）同一套规则，不然同一条回复
+# 在 Web 里配到的图，和微信里发出去的会是两张。
+_RE_MEME = re
+
+def _fold_caption(s):
+    s = str(s or "").strip()
+    s = _RE_MEME.sub(r'[\u201c\u201d\u2018\u2019\u300c\u300d\u300e\u300f\u00ab\u00bb]', '"', s)
+    return _RE_MEME.sub(r"\s+", " ", s)
+
+def _loose_caption(s):
+    return _RE_MEME.sub(r'["\'\s]', "", _fold_caption(s))
+
+_TOKEN_SPLIT = _RE_MEME.compile(r'[\s,.!?;:\u3001\uff0c\u3002\uff01\uff1f\uff1b\uff1a"\u201c\u201d\'\u2018\u2019()\uff08\uff09\\[\\]\u3010\u3011\u300a\u300b\u2026\u00b7\uff5e~\\-]+')
+
+def _split_desc_tokens(s):
+    parts = _TOKEN_SPLIT.split(_fold_caption(s))
+    toks = [_RE_MEME.sub(r'["\']', "", p) for p in parts]
+    toks = [t for t in toks if len(t) >= 2]
+    toks.sort(key=len, reverse=True)
+    return toks
+
+MEME = {"captions": {}, "keywords": {}, "rows": [], "本地时间": 0}
+MEME_LOCK = threading.Lock()
+
+def _本地表情库路径():
+    # DSH_WECHAT_IMAGE_MEMORY 只给自测 / 调试用，正常走 ~/.dsh
+    return (
+        os.environ.get("DSH_WECHAT_IMAGE_MEMORY", "").strip()
+        or os.path.join(os.path.expanduser("~"), ".dsh", "wechat-image-memory.json")
+    )
+
+def _本地表情库时间():
+    try:
+        return os.path.getmtime(_本地表情库路径())
+    except OSError:
+        return 0
+
+def load_memes():
+    import glob
+    import sqlite3
+
+    captions, keywords, rows = {}, {}, []
+
+    def 加键(表, key, path):
+        raw = str(key or "").strip()
+        if not raw:
+            return
+        for form in {raw, _fold_caption(raw), _loose_caption(raw)}:
+            if form and form not in 表:
+                表[form] = path
+
+    def 收一张(path, cap, kw, fn):
+        cap = str(cap or "").strip()
+        kw = str(kw or "")
+        fn = str(fn or "")
+        加键(captions, cap, path)
+        加键(captions, fn, path)
+        加键(captions, cap[:80], path)
+        加键(captions, cap[:100], path)
+        加键(keywords, kw, path)
+        for w in str(kw).split():
+            加键(keywords, w, path)
+        hay = []
+        parts = []
+        for s in (cap, kw, fn):
+            f = _fold_caption(s)
+            if not f:
+                continue
+            l = _loose_caption(s)
+            hay.append(f)
+            if l and l != f:
+                hay.append(l)
+            parts.append(s)
+        rows.append({"hay": hay, "tokens": _split_desc_tokens(" ".join(parts)), "path": path})
+
+    dbs = []
+    try:
+        base = os.path.join(os.path.expanduser("~"), ".dsh", "profiles")
+        dbs += glob.glob(os.path.join(base, "*", "node_modules", "dsh-meme", "memes", "*", "index.db"))
+    except Exception:
+        pass
+
+    for dbp in dbs:
+        pack = os.path.dirname(dbp)
+        try:
+            con = sqlite3.connect(dbp)
+            for path, cap, kw, fn in con.execute("select path, caption, keywords, file_name from memes"):
+                absp = os.path.join(pack, str(path).replace("/", os.sep))
+                if not os.path.exists(absp):
+                    continue
+                收一张(absp, cap, kw, fn)
+            con.close()
+        except Exception as e:
+            log("读表情库失败：", repr(e))
+
+    # 宿主自己收的表情包（图片记忆 JSON）：描述当 caption，情绪 / 标签当关键词。
+    # 每次发消息前会看文件 mtime，新收到表情不用重启桥接。
+    本地张数 = 0
+    for 条 in 读本地表情库(_本地表情库路径()):
+        收一张(条["path"], 条["描述"], 条["关键词"], os.path.basename(条["path"]))
+        加键(captions, 条["id"], 条["path"])
+        本地张数 += 1
+
+    with MEME_LOCK:
+        MEME["captions"], MEME["keywords"], MEME["rows"] = captions, keywords, rows
+        MEME["本地时间"] = _本地表情库时间()
+
+    if rows:
+        packs = [os.path.basename(os.path.dirname(d)) for d in dbs]
+        if 本地张数:
+            packs.append("本地表情 %d 张" % 本地张数)
+        log("表情库：%d 张（%s）" % (len(rows), "、".join(packs) or "无"))
+
+def maybe_reload_memes():
+    """图片记忆变了就重建索引；失败不影响发送。"""
+    try:
+        if _本地表情库时间() > MEME.get("本地时间", 0):
+            load_memes()
+    except Exception as e:
+        log("刷新表情库失败：", repr(e))
+
+def find_meme(desc):
+    """和前端 matchDesc 同一套优先级：caption 精确 > keyword 精确 > 分词最长命中。"""
+    raw = str(desc or "").strip()
+    if not raw:
+        return ""
+    forms = [raw, _fold_caption(raw), _loose_caption(raw)]
+    for 表 in (MEME["captions"], MEME["keywords"]):
+        for form in forms:
+            hit = 表.get(form)
+            if hit:
+                return hit
+    needles = []
+    for t in _split_desc_tokens(raw):
+        l = _loose_caption(t)
+        if l:
+            needles.append(l)
+    best, best_len, best_cnt = "", 0, 0
+    for row in MEME["rows"]:
+        longest = 0
+        count = 0
+        for needle in needles:
+            length = len(needle) if any(needle in h for h in row["hay"]) else 0
+            for tok in row["tokens"]:
+                t = _loose_caption(tok)
+                if t and (needle in t or t in needle):
+                    length = max(length, min(len(needle), len(t)))
+            if length:
+                longest = max(longest, length)
+                count += 1
+        if longest > best_len or (longest == best_len and count > best_cnt):
+            best, best_len, best_cnt = row["path"], longest, count
+    return best
+
+
+
+def 读本地表情库(路径=None):
+    """读宿主写的 wechat-image-memory.json，只返回启用且有文件的本地表情包。
+
+    返回 [{"path", "描述", "关键词", "id"}, ...]；读不到 / 格式不对都返回空列表。
+    """
+    p = 路径 or _本地表情库路径()
+    out = []
+    try:
+        with open(p, "r", encoding="utf-8-sig") as f:
+            d = json.load(f)
+        for x in (d.get("图片") or []) if isinstance(d, dict) else []:
+            if not isinstance(x, dict):
+                continue
+            if str(x.get("类型") or "") != "表情包" or x.get("启用") is False:
+                continue
+            path = str(x.get("文件") or "").strip()
+            if not path or not os.path.exists(path):
+                path = str(x.get("原文件") or "").strip()
+            if not path or not os.path.exists(path):
+                continue
+            情绪 = [str(t).strip() for t in (x.get("情绪") or []) if str(t).strip()]
+            标签 = [str(t).strip() for t in (x.get("标签") or []) if str(t).strip()]
+            out.append({
+                "path": path,
+                "描述": str(x.get("描述") or "").strip(),
+                "关键词": " ".join(情绪 + 标签),
+                "id": str(x.get("id") or "").strip(),
+            })
+    except Exception:
+        pass
+    return out
+
+
 def main():
     global HOST_VERSION, ARGS
     ARGS = parse_args()
@@ -788,6 +980,18 @@ def main():
             "ok": bool(q),
             "路径": q or "",
             "说": "" if q else "转换失败（缺 ffmpeg / imageio-ffmpeg，或不是 HEVC）",
+        }, ensure_ascii=False))
+        return 0
+
+    # 表情匹配自测：加载表情库（含本地图片记忆），打印匹配结果后退出。
+    if ARGS.meme_test:
+        load_memes()
+        hit = find_meme(ARGS.meme_test)
+        print(json.dumps({
+            "ok": bool(hit),
+            "路径": hit or "",
+            "本地表情": len(读本地表情库()),
+            "说": "" if hit else "没匹配到",
         }, ensure_ascii=False))
         return 0
 
@@ -1236,118 +1440,6 @@ def main():
                 本地库写笔记()
             except Exception as e:
                 log("本地库笔记循环出错：", repr(e))
-
-    # ---------- 表情包：正文里的 [表情: 描述] 变成真图片 ----------
-
-    # 和前端配图器（dsh-meme client.js 的 matchDesc）同一套规则，不然同一条回复
-    # 在 Web 里配到的图，和微信里发出去的会是两张。
-    _RE_MEME = re
-
-    def _fold_caption(s):
-        s = str(s or "").strip()
-        s = _RE_MEME.sub(r'[\u201c\u201d\u2018\u2019\u300c\u300d\u300e\u300f\u00ab\u00bb]', '"', s)
-        return _RE_MEME.sub(r"\s+", " ", s)
-
-    def _loose_caption(s):
-        return _RE_MEME.sub(r'["\'\s]', "", _fold_caption(s))
-
-    _TOKEN_SPLIT = _RE_MEME.compile(r'[\s,.!?;:\u3001\uff0c\u3002\uff01\uff1f\uff1b\uff1a"\u201c\u201d\'\u2018\u2019()\uff08\uff09\\[\\]\u3010\u3011\u300a\u300b\u2026\u00b7\uff5e~\\-]+')
-
-    def _split_desc_tokens(s):
-        parts = _TOKEN_SPLIT.split(_fold_caption(s))
-        toks = [_RE_MEME.sub(r'["\']', "", p) for p in parts]
-        toks = [t for t in toks if len(t) >= 2]
-        toks.sort(key=len, reverse=True)
-        return toks
-
-    MEME = {"captions": {}, "keywords": {}, "rows": []}
-
-    def load_memes():
-        import glob
-        import sqlite3
-
-        dbs = []
-        try:
-            base = os.path.join(os.path.expanduser("~"), ".dsh", "profiles")
-            dbs += glob.glob(os.path.join(base, "*", "node_modules", "dsh-meme", "memes", "*", "index.db"))
-        except Exception:
-            pass
-        def 加键(表, key, path):
-            raw = str(key or "").strip()
-            if not raw:
-                return
-            for form in {raw, _fold_caption(raw), _loose_caption(raw)}:
-                if form and form not in 表:
-                    表[form] = path
-
-        for dbp in dbs:
-            pack = os.path.dirname(dbp)
-            try:
-                con = sqlite3.connect(dbp)
-                for path, cap, kw, fn in con.execute("select path, caption, keywords, file_name from memes"):
-                    absp = os.path.join(pack, str(path).replace("/", os.sep))
-                    if not os.path.exists(absp):
-                        continue
-                    cap = str(cap or "").strip()
-                    kw = str(kw or "")
-                    fn = str(fn or "")
-                    加键(MEME["captions"], cap, absp)
-                    加键(MEME["captions"], fn, absp)
-                    加键(MEME["captions"], cap[:80], absp)
-                    加键(MEME["captions"], cap[:100], absp)
-                    加键(MEME["keywords"], kw, absp)
-                    for w in kw.split():
-                        加键(MEME["keywords"], w, absp)
-                    hay = []
-                    parts = []
-                    for s in (cap, kw, fn):
-                        f = _fold_caption(s)
-                        if not f:
-                            continue
-                        l = _loose_caption(s)
-                        hay.append(f)
-                        if l and l != f:
-                            hay.append(l)
-                        parts.append(s)
-                    MEME["rows"].append({"hay": hay, "tokens": _split_desc_tokens(" ".join(parts)), "path": absp})
-                con.close()
-            except Exception as e:
-                log("读表情库失败：", repr(e))
-        if MEME["rows"]:
-            log("表情库：%d 张（%s）" % (len(MEME["rows"]), "、".join(os.path.basename(os.path.dirname(d)) for d in dbs)))
-
-    def find_meme(desc):
-        """和前端 matchDesc 同一套优先级：caption 精确 > keyword 精确 > 分词最长命中。"""
-        raw = str(desc or "").strip()
-        if not raw:
-            return ""
-        forms = [raw, _fold_caption(raw), _loose_caption(raw)]
-        for 表 in (MEME["captions"], MEME["keywords"]):
-            for form in forms:
-                hit = 表.get(form)
-                if hit:
-                    return hit
-        needles = []
-        for t in _split_desc_tokens(raw):
-            l = _loose_caption(t)
-            if l:
-                needles.append(l)
-        best, best_len, best_cnt = "", 0, 0
-        for row in MEME["rows"]:
-            longest = 0
-            count = 0
-            for needle in needles:
-                length = len(needle) if any(needle in h for h in row["hay"]) else 0
-                for tok in row["tokens"]:
-                    t = _loose_caption(tok)
-                    if t and (needle in t or t in needle):
-                        length = max(length, min(len(needle), len(t)))
-                if length:
-                    longest = max(longest, length)
-                    count += 1
-            if longest > best_len or (longest == best_len and count > best_cnt):
-                best, best_len, best_cnt = row["path"], longest, count
-        return best
 
     # ---------- 发：从 DSH 取队列，用 UIA 发出去 ----------
 
@@ -2262,7 +2354,8 @@ def main():
         try:
             fd, tmp = tempfile.mkstemp(suffix=ext, prefix="wxbridge_")
             os.close(fd)
-            with urllib.request.urlopen(p, timeout=15) as r, open(tmp, "wb") as f:
+            # 表情包插件第一次用时才去远端下载，单个 GIF 可能到 5MB+，给宽一点。
+            with urllib.request.urlopen(p, timeout=30) as r, open(tmp, "wb") as f:
                 shutil.copyfileobj(r, f)
             return tmp
         except Exception as e:
@@ -2520,6 +2613,9 @@ def main():
         text = str(item.get("text") or "").strip()
         chat = str(item.get("chat") or "").strip()
         images = [str(p) for p in (item.get("images") or []) if p]
+
+        # 新收到表情 / 改过标签后，发下一条前自动重建索引，不用重启桥接。
+        maybe_reload_memes()
 
         # 正文里的 [表情: 描述] 换成真图片（表情库里有就发图，没有就保持原样）
         表情图 = []

@@ -21,6 +21,17 @@ writeFileSync(
 try {
   rmSync(聊天路径, { force: true })
 } catch (error) {}
+
+// 图片记忆也清掉自测专用的几条；否则上一轮的表情指纹会把这一轮的收图去重掉
+try {
+  const 图片记忆路径 = join(家, 'wechat-image-memory.json')
+  if (existsSync(图片记忆路径)) {
+    const d = JSON.parse(readFileSync(图片记忆路径, 'utf8').replace(/^﻿/, ''))
+    const 自测id = new Set(['inbound', '贴纸A', '贴纸B'])
+    const 留 = (d.图片 || []).filter((x) => !自测id.has(String(x.id)))
+    writeFileSync(图片记忆路径, JSON.stringify({ ...d, 图片: 留 }, null, 2), 'utf8')
+  }
+} catch (error) {}
 const 期望版本 = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version
 
 const 会话 = [
@@ -94,7 +105,7 @@ const 断言 = (名, 条件, 细节) => {
 
 // 1 路由与工具都挂上了
 断言('插件注入声明包含 tools', (hostMod.inject || []).includes('tools'), hostMod.inject)
-断言('注册了 8 个工具', 工具.length === 8, 工具.map((t) => t.name))
+断言('注册了 9 个工具', 工具.length === 9, 工具.map((t) => t.name))
 断言('wechat_send_image 工具挂上了', 工具.some((t) => t.name === 'wechat_send_image'), 工具.map((t) => t.name))
 断言('wechat_image_memory 工具挂上了', 工具.some((t) => t.name === 'wechat_image_memory'), 工具.map((t) => t.name))
 断言('wechat_read_image 工具挂上了', 工具.some((t) => t.name === 'wechat_read_image'), 工具.map((t) => t.name))
@@ -471,6 +482,25 @@ const 发件1 = await 调('/dsh-wechat-bridge/outbox', {})
   (发件1.消息 || []).some((x) => x.images.includes((记忆条 && 记忆条.文件) || '')),
   发件1,
 )
+// 工作区副本被清掉时，按 id 应该回落到 ~/.dsh/wechat-inbound 里的原文件
+rmSync(记忆条.文件, { force: true })
+断言('工作区副本删掉后原文件还在', !!记忆条.原文件 && existsSync(记忆条.原文件), 记忆条)
+const 按id回落 = await 发图工具.execute({ id: 'inbound', chat: '群A' })
+断言('副本不在时按 id 回落原文件', 按id回落 && 按id回落.ok, 按id回落)
+const 发件2 = await 调('/dsh-wechat-bridge/outbox', {})
+断言(
+  '回落后的原文件进了发件队列',
+  (发件2.消息 || []).some((x) => (x.images || []).includes(记忆条.原文件)),
+  发件2,
+)
+const 图类果 = await 记忆工具.execute({ 类型: '图片' })
+断言('图片记忆可以按类型过滤', 图类果 && 图类果.ok && 图类果.说.includes(记忆条.文件), 图类果)
+const 表情果 = await 记忆工具.execute({ 类型: '表情包' })
+断言(
+  '只看表情包时不会混进普通图片',
+  表情果 && 表情果.ok && !表情果.说.includes(记忆条.文件),
+  表情果,
+)
 const 读图工具 = 工具.find((t) => t.name === 'wechat_read_image')
 const 读图果 = await 读图工具.execute({ id: 'inbound' })
 断言('看图关着时读图工具会提示', 读图果 && 读图果.ok === false && /看图关着/.test(读图果.说), 读图果)
@@ -487,6 +517,134 @@ const 图片记忆2 = JSON.parse(readFileSync(join(家, 'wechat-image-memory.jso
   '删除后 JSON 里也没有这条',
   !(图片记忆2.图片 || []).some((x) => x.id === 'inbound'),
   图片记忆2,
+)
+
+// 17.5 表情库：内容去重、情绪检索、别名发图、2 分钟冷却、停用
+const 贴纸A = join(家, '贴纸A.png')
+const 贴纸B = join(家, '贴纸B.png')
+const 贴纸字节 = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex')
+writeFileSync(贴纸A, 贴纸字节)
+writeFileSync(贴纸B, 贴纸字节)
+const 收贴纸 = (路径) =>
+  调('/dsh-wechat-bridge/receive', {
+    text: '（发来一个表情包）',
+    chat: '群A',
+    chatType: 'group',
+    sender: 'k2',
+    senderId: 'wxid_k2',
+    图片: [路径],
+    图片类型: '表情包',
+  })
+await 收贴纸(贴纸A)
+await 收贴纸(贴纸B)
+const 读贴纸库 = () =>
+  JSON.parse(readFileSync(join(家, 'wechat-image-memory.json'), 'utf8')).图片 || []
+const 贴纸库 = 读贴纸库()
+const 贴纸条 = 贴纸库.find((x) => x.id === '贴纸A')
+断言(
+  '同一张表情换个文件名不会存两条',
+  贴纸库.filter((x) => String(x.类型) === '表情包' && String(x.id).startsWith('贴纸')).length === 1,
+  贴纸库,
+)
+断言(
+  '重复的文件名记进别名',
+  !!贴纸条 && (贴纸条.别名 || []).includes('贴纸B') && !!贴纸条.指纹,
+  贴纸条,
+)
+// 补一句描述，验情绪标签是从描述里自动抽出来的
+const 全记忆 = JSON.parse(readFileSync(join(家, 'wechat-image-memory.json'), 'utf8'))
+const 要改 = (全记忆.图片 || []).find((x) => x.id === '贴纸A')
+if (要改) {
+  要改.描述 = '蓝发Q版女孩摊成一团，表达无语和摆烂。'
+  delete 要改.情绪
+}
+writeFileSync(join(家, 'wechat-image-memory.json'), JSON.stringify(全记忆, null, 2), 'utf8')
+
+const 表情工具 = 工具.find((t) => t.name === 'wechat_sticker_search')
+断言('wechat_sticker_search 工具挂上了', !!表情工具, 工具.map((t) => t.name))
+const 表情检索果 = await 表情工具.execute({ mood: '无语', chat: '群A' })
+断言(
+  '按情绪能找到表情并自动打标签',
+  表情检索果 && 表情检索果.ok && 表情检索果.说.includes('贴纸A') && 表情检索果.说.includes('无语'),
+  表情检索果,
+)
+const 按别名发 = await 发图工具.execute({ id: '贴纸B', chat: '群A' })
+断言('按别名 id 也能发出去', 按别名发 && 按别名发.ok, 按别名发)
+const 冷却搜索 = await 表情工具.execute({ mood: '无语', chat: '群A' })
+断言(
+  '2 分钟内发过的表情不再推荐',
+  冷却搜索 && 冷却搜索.ok && !冷却搜索.说.includes('贴纸A'),
+  冷却搜索,
+)
+const 重发 = await 发图工具.execute({ id: '贴纸A', chat: '群A' })
+断言('2 分钟内不重复发同一张表情', 重发 && 重发.ok === false && /刚发过/.test(重发.说), 重发)
+const 强发 = await 发图工具.execute({ id: '贴纸A', chat: '群A', 强制: true })
+断言('强制可以忽略冷却', 强发 && 强发.ok, 强发)
+const 贴纸条2 = 读贴纸库().find((x) => x.id === '贴纸A')
+断言(
+  '使用次数和最近发送写回记忆',
+  !!贴纸条2 && 贴纸条2.用了几次 === 2 && !!贴纸条2.最近发送 && !!贴纸条2.最近发送['群A'],
+  贴纸条2,
+)
+const 停用 = await 调('/dsh-wechat-bridge/images/toggle', { id: '贴纸A' })
+断言('可以停用表情', 停用 && 停用.ok && 停用.启用 === false, 停用)
+const 停用后 = await 表情工具.execute({ mood: '无语', chat: '群A' })
+断言('停用后不再推荐', 停用后 && 停用后.ok && !停用后.说.includes('贴纸A'), 停用后)
+const 图列2 = await 调('/dsh-wechat-bridge/images', {})
+const 图条 = (图列2.图片 || []).find((x) => x.id === '贴纸A')
+断言(
+  '图片管理返回情绪和使用次数',
+  !!图条 && Array.isArray(图条.情绪) && 图条.情绪.includes('无语') && 图条.用了几次 === 2,
+  图条,
+)
+const 改标签 = await 调('/dsh-wechat-bridge/images/meta', {
+  id: '贴纸A',
+  情绪: '无语 嘲讽',
+  标签: '雪 测试',
+})
+const 贴纸条3 = 读贴纸库().find((x) => x.id === '贴纸A')
+断言(
+  '可以手动改情绪和标签',
+  改标签
+    && 改标签.ok
+    && !!贴纸条3
+    && (贴纸条3.情绪 || []).join('/') === '无语/嘲讽'
+    && (贴纸条3.标签 || []).join('/') === '雪/测试',
+  贴纸条3,
+)
+
+// 17.6 大肥鱼表情包：sticker_send 返回的本机 Markdown 图 + 工具附言
+await 发温度消息('来个大肥鱼表情')
+屏.收到事件(
+  { id: 'session-aaa' },
+  {
+    type: 'assistant/message',
+    data: {
+      turn: 99,
+      message: {
+        content: [
+          {
+            type: 'text',
+            text: '![摸鱼](http://127.0.0.1:9999/x-nekowhale-stickers/s/abc123.gif)\n把上面这行原样放进回复即可显示。',
+          },
+        ],
+      },
+    },
+  },
+)
+屏.收到事件(
+  { id: 'session-aaa' },
+  { type: 'turn/end', data: { turn: 99, reason: { kind: 'completed' } } },
+)
+const 肥鱼发件 = await 调('/dsh-wechat-bridge/outbox', {})
+const 肥鱼条 = (肥鱼发件.消息 || []).find((x) =>
+  (x.images || []).includes('http://127.0.0.1:9999/x-nekowhale-stickers/s/abc123.gif'),
+)
+断言('大肥鱼 sticker_send 的 Markdown 图进了发件队列', !!肥鱼条, 肥鱼发件)
+断言(
+  '工具附言不会跟着发到微信',
+  !!肥鱼条 && !String(肥鱼条.text || '').includes('把上面这行原样放进回复即可显示'),
+  肥鱼条,
 )
 
 // 18 发图工具：本地文件能进发件队列

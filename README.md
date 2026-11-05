@@ -179,9 +179,36 @@ python bridge/web_search.py --set-weights 1 '{"deepseek": 3.5}' --db ~/.dsh/wech
 
 ## 表情包
 
-伙伴在回复里写 `[表情: 描述]`，插件会去 `dsh-meme` 的表情库里按 caption / 关键词找那张图，**当图片消息发到微信**，那串描述本身不会出现在正文里。
+微信里收到过的表情包会进本地表情库（就是图片记忆，带视觉描述）。伙伴可以用 `wechat_sticker_search` 按情绪或关键词挑一张：
 
-找不到对应图片时保持原样（发出去的就是文字），不会丢内容。
+```
+wechat_sticker_search { mood: "无语", query: "猫", limit: 5 }
+→ [id] 描述 · 情绪 · 动图/静图 · 用过几次
+```
+
+挑好后用 `wechat_send_image(id=…)` 发出去。规则：
+
+- 优先没用过、少用过的表情；同一聊天 2 分钟内发过的自动略过（防刷屏）
+- 同一张图换了文件名只存一条，旧文件名进「别名」，按哪个 id 都能发
+- 设置页「图片管理」可以按 全部 / 表情包 / 图片 筛选，看情绪标签和使用次数，支持停用 / 启用，也可以手动改描述、情绪、标签（停用的不再被推荐，文件保留）
+- 找不到合适的就别硬发，直接文字回复
+
+另外，伙伴在回复里写 `[表情: 描述]` 时，桥接会**先在本机表情库**里找（收到的表情包 + 情绪 / 标签），找不到再找 `dsh-meme`；都没有就保持原样，不会丢内容。新收到表情或改过标签后，下一条发送前自动生效，不用重启桥接。
+
+## 大肥鱼表情包（可选，dsh-nekowhale-stickers）
+
+装 [`dsh-nekowhale-stickers`](https://github.com/Loping151/dsh-nekowhale-stickers) 后，伙伴可以检索 322 张「大肥鱼 / GPT娘」表情（按情绪、场景、标签），用 `sticker_send` 返回一行 Markdown 图片，本桥接会把它下载并真的发到微信。
+
+```powershell
+dsh plugin --profile desktop add dsh-nekowhale-stickers
+```
+
+- 需要重启 DSH 一次；之后工具里会多出 `sticker_search` / `sticker_send` / `meme_render` / `sticker_manage`
+- 本插件自己的表情检索叫 **`wechat_sticker_search`**（微信里收到的表情），和它的 `sticker_search` 不重名
+- 提示词会自动协调：大肥鱼包优先，找不到再用微信里收到的表情
+- 表情首次使用时才从 `kiriyuki.com` 懒下载；也可以在该插件的设置里改成启动时全量同步
+- **GIF 限制**：微信剪贴板发图只保留第一帧，所以动态大肥鱼表情在微信里是静态图；原文件仍会正常缓存
+- 素材作者：B站 [可以叫我云大人](https://space.bilibili.com/103739)，[kiriyuki.com](https://kiriyuki.com) 制作；许可 Apache-2.0 AND CC BY-NC 4.0，**仅限非商业使用**，转载/分发请保留署名
 
 ## 「文件传输助手」
 
@@ -289,6 +316,10 @@ python bridge/web_search.py --set-weights 1 '{"deepseek": 3.5}' --db ~/.dsh/wech
 | --- | --- | --- |
 | `wechat_block` | `{who, action: add / remove / list}` | 加/删/看「不回谁」名单 |
 | `wechat_bind` | `{chat, session, action}` | 把某个微信聊天接到某间会话；`session` 可以只报标题（如「主要聊天记忆」），它自己去找那一间 |
+| `wechat_sticker_search` | `{query?, mood?, chat?, limit?}` | 从收到的表情包里按关键词 / 情绪挑一张，优先少用的 |
+| `wechat_send_image` | `{id / path / url, chat?, text?, 强制?}` | 发图到微信；按 id 发时工作区副本没了会自动回落原文件 |
+| `wechat_image_memory` | `{query?, id?, 类型?, chat?, limit?}` | 查图片 / 表情包记忆（描述、情绪、路径、使用次数） |
+| `wechat_read_image` | `{id? / path?}` | 让视觉模型单独读一张图，并把描述写回记忆 |
 | `local_search` | `{query, chat?, limit?}` | 搜本地微信历史 + 笔记 + 已入库的联网结果 |
 | `keyword_search` | `{query, chat?, web?, limit?}` | 关键词注意力排序，最多 5 条；`web=true` 联网搜索并入库 |
 | `web_search` | `{query, limit?, save?}` | 独立联网搜索，不需要桥接在跑；默认保存到本地并入库 |
@@ -355,6 +386,7 @@ $env:DSH_HOME="$PWD\.testhome"; node _selftest_client.mjs  # 假 React 把设置
 python -I _selftest_filter.py                              # 「只听」筛选纯函数
 python -I _selftest_rag.py                                 # @ 解析 + RAG 检索 + zstd 解压
 python -I _selftest_localdb.py                             # 本地知识库 FTS5 检索
+python -I _selftest_sticker.py                             # 本地表情库读取 + [表情: 关键词] 匹配
 ```
 
 ## 致谢
